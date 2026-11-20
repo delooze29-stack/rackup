@@ -355,7 +355,10 @@ const sdef = (g,k)=>SHAME[g].find(x=>x.k===k);
 /* ---------------- state ---------------- */
 let S = DB.load() || {v:1, names:['Mathew','Gaz'], set:{race:{'9':0,'8':0,'s':0}, games:['9','8'], fx:true}, nights:[], cur:null, owed:[0,0]};
 let UI = {tab:'night', view:null, cmp:null, table:false, setup:null, sel:null, endArm:false, resetArm:false, delArm:false};
+const DEFAULT_VENUES=['Hazel Grove Snooker Club','The Trackside'];
+const NF=()=> UI.venue ? S.nights.filter(n=>n.venue===UI.venue) : S.nights;
 function migrate(){
+  if(!S.venues) S.venues=[...DEFAULT_VENUES];
   if(!S.set) S.set={fx:true};
   if(!S.set.race) S.set.race={'9':S.set.race9||0,'8':S.set.race8||0,'s':0};
   if(!S.set.games) S.set.games=['9','8'];
@@ -452,8 +455,9 @@ function confetti(){
 /* ---------------- actions ---------------- */
 function startNight(){
   const u=UI.setup; if(!u.games.length) return;
+  S.set.venue=u.venue;
   S.cur={id:'n'+Date.now(), date:new Date().toISOString(),
-    games:{}, order:[...u.games], frames:[], g:u.games[0], ended:false, first:u.first, lag:u.lag, rule:{...u.rule}, bov:{}};
+    games:{}, order:[...u.games], frames:[], g:u.games[0], ended:false, venue:u.venue||'', first:u.first, lag:u.lag, rule:{...u.rule}, bov:{}};
   S.set.rule={...u.rule};
   u.games.forEach(g=>{ S.cur.games[g]={race:u.race[g], start:u.h[g], mins:u.mins[g]}; S.set.race[g]=u.race[g]; });
   S.set.mins={...u.mins};
@@ -679,7 +683,7 @@ function snookerBoard(n,c){
 /* ---------------- render ---------------- */
 const PLAYER_EMAILS=['mathewdoughty@live.co.uk','claytongary@sky.com'];   // same order as the names
 const meIdx=()=>{ const e=(CLOUD.user&&CLOUD.user.email||'').toLowerCase(); const i=PLAYER_EMAILS.indexOf(e); return i; };
-function freshState(){ return {v:1, names:S.names, set:S.set, nights:[], cur:null, owed:[0,0]}; }
+function freshState(){ return {v:1, names:S.names, set:S.set, venues:S.venues, nights:[], cur:null, owed:[0,0]}; }
 function doWipe(){
   if(CLOUD.user && CLOUD.fs && CLOUD.db){
     try{ CLOUD.fs.setDoc(CLOUD.fs.doc(CLOUD.db,'rackup','backup-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')),{data:JSON.stringify(S), by:CLOUD.user.email||''}); }catch(e){}
@@ -729,27 +733,28 @@ function oddsFrom(nights){
   GAMES.forEach(g=>{ const t=gw[g].a+gw[g].b; per[g]=(gw[g].a+PRIOR)/(t+2*PRIOR); if(t){ num+=per[g]*t; den+=t; } });
   return {p: den? num/den : 0.5, per, played:GAMES.filter(g=>gw[g].a+gw[g].b>0)};
 }
-function oddsCard(compact){
-  const o=oddsFrom(S.nights), prev=S.nights.length?oddsFrom(S.nights.slice(0,-1)):null;
+function oddsCard(compact, list){
+  list=list||S.nights;
+  const o=oddsFrom(list), prev=list.length?oddsFrom(list.slice(0,-1)):null;
   const move=i=>{ if(!prev) return ''; const now=i?1-o.p:o.p, was=i?1-prev.p:prev.p; if(Math.abs(now-was)<0.01) return '<span class="muted">steady</span>';
     return now>was?`<span style="color:var(--good)">▲ in from ${frac(was)}</span>`:`<span style="color:var(--bad)">▼ out from ${frac(was)}</span>`; };
   const side=i=>`<div class="center grow"><div style="font-weight:700"><span class="dot d${i}"></span>${N(i)}</div><div class="big" style="font-size:40px;line-height:1.05">${frac(i?1-o.p:o.p)}</div><div style="font-size:11px">${move(i)}</div><div class="muted" style="font-size:11px">${Math.round((i?1-o.p:o.p)*100)}% chance</div></div>`;
   return `<div class="card">
-    <div class="row between"><h3 style="margin:0">📈 The odds</h3><span class="muted" style="font-size:11px">${S.nights.length?`from the last ${Math.min(10,S.nights.length)} night${S.nights.length>1?'s':''}`:'first night: evens'}</span></div>
+    <div class="row between"><h3 style="margin:0">📈 The odds</h3><span class="muted" style="font-size:11px">${list.length?`from the last ${Math.min(10,list.length)} night${list.length>1?'s':''}`:'first night: evens'}</span></div>
     <div class="row mt" style="margin-top:12px">${side(0)}<div class="muted big" style="font-size:22px">v</div>${side(1)}</div>
     ${o.played.length?`<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;justify-content:center">${o.played.map(g=>`<span class="pill">${GL(g)}: ${N(o.per[g]>=0.5?0:1)} ${frac(Math.max(o.per[g],1-o.per[g]))}</span>`).join('')}</div>`:''}
   </div>`;
 }
 function formFor(p){
-  return S.nights.slice(-6).map(n=>{ const w=n.result.win; return w<0?'D':(w===p?'W':'L'); });
+  return NF().slice(-6).map(n=>{ const w=n.result.win; return w<0?'D':(w===p?'W':'L'); });
 }
 function avgRate(p,k){
-  const r=S.nights.slice(-(k||5)).map(n=>n.rate&&n.rate[p]).filter(Boolean);
+  const r=NF().slice(-(k||5)).map(n=>n.rate&&n.rate[p]).filter(Boolean);
   return r.length? (r.reduce((a,b)=>a+b,0)/r.length).toFixed(1) : '–';
 }
 function formCard(){
   const badge=x=>`<span class="fb fb${x}">${x}</span>`;
-  const row=p=>{ const f=formFor(p), last5=S.nights.slice(-5); let fw=0,fl=0; last5.forEach(n=>{fw+=n.result.tot[p]; fl+=n.result.tot[1-p];});
+  const row=p=>{ const f=formFor(p), last5=NF().slice(-5); let fw=0,fl=0; last5.forEach(n=>{fw+=n.result.tot[p]; fl+=n.result.tot[1-p];});
     const streak=(()=>{let k=0; for(let i=f.length-1;i>=0&&f[i]===f[f.length-1];i--) k++; return f.length?`${k}${f[f.length-1]}`:'';})();
     return `<div class="li" style="align-items:flex-start"><div><b><span class="dot d${p}"></span>${N(p)}</b>
       <div class="muted" style="font-size:12px;margin-top:3px">Last 5: frames ${fw}–${fl} · rated ${avgRate(p)}/10${streak?` · on ${streak}`:''}</div></div>
@@ -759,7 +764,7 @@ function formCard(){
 
 const minsLbl=m=> !m ? 'No limit' : m<60 ? `${m} min` : `${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}`;
 function viewSetup(){
-  if(!UI.setup){ UI.setup={games:[...S.set.games], mins:{'9':0,'8':0,'s':0,...(S.set.mins||{})}, race:{...S.set.race}, h:{'9':[0,0],'8':[0,0],'s':[0,0]}, first:0, lag:null, rule:{...(S.set.rule||{'9':'alt','8':'alt'})}}; }
+  if(!UI.setup){ UI.setup={venue:S.set.venue||S.venues[0], games:[...S.set.games], mins:{'9':0,'8':0,'s':0,...(S.set.mins||{})}, race:{...S.set.race}, h:{'9':[0,0],'8':[0,0],'s':[0,0]}, first:0, lag:null, rule:{...(S.set.rule||{'9':'alt','8':'alt'})}}; }
   const u=UI.setup;
   const step=(k,label)=>`<div class="step"><button data-act="st" data-k="${k}" data-d="-1">−</button><b>${label}</b><button data-act="st" data-k="${k}" data-d="1">+</button></div>`;
   const raceLbl=r=>r?`Race ${r}`:'Open';
@@ -771,6 +776,12 @@ function viewSetup(){
     <div class="muted" style="margin-top:4px">${S.nights.length?`Night ${S.nights.length+1} of the rivalry`:'First night of the rivalry'}${last?` · last time: ${last.result.win>=0?N(last.result.win)+' won '+Math.max(...last.result.tot)+'–'+Math.min(...last.result.tot):'a draw'}`:''}</div>
   </div>
   ${oddsCard(true)}
+  <div class="card">
+    <h3>📍 Where are you playing?</h3>
+    <div class="chips" style="margin:0">${S.venues.map(v=>`<button class="chip ${u.venue===v?'on':''}" data-act="pickv" data-v="${esc(v)}">${esc(v)}</button>`).join('')}
+      <button class="chip" data-act="addv">+ Add place</button></div>
+    ${UI.addV?`<div class="row" style="margin-top:10px"><input id="newv" placeholder="e.g. The Crown, Buxton" maxlength="40"><button class="btn primary" data-act="savev">Add</button></div>`:''}
+  </div>
   <div class="card">
     <h3>What are you playing tonight?</h3>
     <div class="chips" style="margin:0">${GAMES.map(g=>`<button class="chip ${u.games.includes(g)?'on':''}" data-act="pickg" data-g="${g}" style="flex:1;text-align:center">${ic[g]} ${GL(g)}</button>`).join('')}</div>
@@ -941,7 +952,7 @@ function viewNight(id){
   return `
   <button class="btn" data-act="back" style="padding:8px 12px">← Rivalry</button>
   <div class="card center">
-    <div class="muted">${fmtDate(n.date)}</div>
+    <div class="muted">${fmtDate(n.date)}${n.venue?` · 📍 ${esc(n.venue)}`:''}</div>
     <div class="row" style="justify-content:center;gap:18px;margin-top:6px">
       <div class="center"><div class="big" style="font-size:64px;line-height:1">${c.tot[0]}</div><div style="font-weight:700">${w===0?'<span class="crown">♛</span> ':''}<span class="dot d0"></span>${N(0)}</div></div>
       <div class="big muted" style="font-size:40px">–</div>
@@ -979,7 +990,7 @@ function allTime(){
   const A={fr:[0,0],gw:{'9':[0,0],'8':[0,0],'s':[0,0]},hb:{v:0},nights:[0,0],draws:0,pts:[0,0],glory:[{},{}],shame:[{},{}],
     bestRun:{len:0},bigWin:{m:0},most:{f:0}};
   A.sn={pts:[0,0],brk:[[],[]],fouls:[0,0],scored:0}; A.lag=[0,0];
-  S.nights.forEach(n=>{
+  NF().forEach(n=>{
     const c=calc(n), w=n.result?n.result.win:nightWinner(c);
     if(n.lag!=null) A.lag[n.lag]++;
     A.sn.scored+=c.sn.scored; [0,1].forEach(p=>{A.sn.pts[p]+=c.sn.pts[p]; A.sn.fouls[p]+=c.sn.fouls[p]; A.sn.brk[p].push(...c.sn.brk[p]);});
@@ -999,21 +1010,31 @@ function allTime(){
   return A;
 }
 
+function venueBar(){
+  const used=[...new Set(S.nights.map(n=>n.venue).filter(Boolean))];
+  const list=[...new Set([...S.venues, ...used])];
+  return `<div class="chips" style="margin:6px 0 0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px">
+    <button class="chip ${!UI.venue?'on':''}" data-act="vfilter" data-v="" style="white-space:nowrap">📍 All venues</button>
+    ${list.map(v=>`<button class="chip ${UI.venue===v?'on':''}" data-act="vfilter" data-v="${esc(v)}" style="white-space:nowrap">${esc(v)} <span class="muted" style="font-size:11px">${S.nights.filter(n=>n.venue===v).length}</span></button>`).join('')}
+  </div>`;
+}
 function viewRival(){
-  if(!S.nights.length) return `<div class="card center" style="padding:30px 16px"><div style="font-size:40px">🏆</div><div class="big" style="font-size:28px">No nights logged yet</div><div class="muted">Finish your first night and the rivalry starts here: head-to-head, records, graphs and the hall of shame.</div></div>`;
+  const vbar=venueBar();
+  if(!NF().length) return vbar+(UI.venue?`<div class="card center" style="padding:30px 16px"><div class="big" style="font-size:26px">No nights at ${esc(UI.venue)} yet</div></div>`:'')+(S.nights.length?'':`<div class="card center" style="padding:30px 16px"><div style="font-size:40px">🏆</div><div class="big" style="font-size:28px">No nights logged yet</div><div class="muted">Finish your first night and the rivalry starts here: head-to-head, records, graphs and the hall of shame.</div></div>`);
   const A=allTime();
   const h2h=(label,a,b)=>{const t=a+b||1; return `<div class="v">${a}</div><div class="k">${label}</div><div class="v r">${b}</div>
     <div class="split"><div style="flex:${a||0.0001};background:var(--p0)"></div><div style="flex:${b||0.0001};background:var(--p1)"></div></div>`;};
   // month trophy
   const now=new Date(), mk=d=>{const x=new Date(d);return x.getFullYear()+'-'+x.getMonth();}, cm=mk(now);
-  const mon=[0,0]; let mN=0; S.nights.filter(n=>mk(n.date)===cm).forEach(n=>{mN++; if(n.result.win>=0) mon[n.result.win]++;});
+  const mon=[0,0]; let mN=0; NF().filter(n=>mk(n.date)===cm).forEach(n=>{mN++; if(n.result.win>=0) mon[n.result.win]++;});
   const monName=now.toLocaleDateString('en-GB',{month:'long'});
   const monLead = mon[0]===mon[1] ? (mN?'Level pegging':'No nights yet this month') : `${N(mon[0]>mon[1]?0:1)} holds the ${monName} trophy`;
   const gl=(k,lbl,ic)=>!((A.glory[0][k]||0)+(A.glory[1][k]||0))?'':`<div class="li"><div>${ic} ${lbl}</div><div class="r">${(A.glory[0][k]||0)} <span class="muted">v</span> ${(A.glory[1][k]||0)}</div></div>`;
   const shm=(k,lbl,ic)=>!((A.shame[0][k]||0)+(A.shame[1][k]||0))?'':`<div class="li"><div>${ic} ${lbl}</div><div class="r">${(A.shame[0][k]||0)} <span class="muted">v</span> ${(A.shame[1][k]||0)}</div></div>`;
   const owe=S.owed[0]-S.owed[1];
   return `
-  ${oddsCard()}
+  ${vbar}
+  ${oddsCard(false, NF())}
   ${formCard()}
   <div class="card">
     <h3>All-time head to head</h3>
@@ -1025,7 +1046,7 @@ function viewRival(){
       ${A.lag[0]+A.lag[1]?h2h('🎯 Lags won',A.lag[0],A.lag[1]):''}
       ${h2h('Bragging pts',Math.max(0,A.pts[0]),Math.max(0,A.pts[1]))}
     </div>
-    <div class="muted center" style="font-size:12px">${S.nights.length} nights${A.draws?` · ${A.draws} drawn`:''}</div>
+    <div class="muted center" style="font-size:12px">${NF().length} nights${A.draws?` · ${A.draws} drawn`:''}</div>
   </div>
   ${snkCard(A.sn,'Snooker: all time')}
   <div class="card">
@@ -1064,11 +1085,11 @@ function viewRival(){
   </div>
   <div class="card">
     <h3>Every night</h3>
-    <div class="list">${S.nights.slice().reverse().map(n=>`<button class="li night" data-act="open" data-id="${n.id}"><div><b>${fmtDate(n.date)}</b><div class="muted" style="font-size:12px">${n.frames.length} frames${n.rate?` · ⭐ ${n.rate[0]||'–'} v ${n.rate[1]||'–'}`:''}</div></div><div class="r">${n.result.win>=0?`<span class="dot d${n.result.win}"></span>`:''}${n.result.tot[0]} – ${n.result.tot[1]} ›</div></button>`).join('')}</div>
+    <div class="list">${NF().slice().reverse().map(n=>`<button class="li night" data-act="open" data-id="${n.id}"><div><b>${fmtDate(n.date)}</b><div class="muted" style="font-size:12px">${n.venue?`📍 ${esc(n.venue)} · `:''}${n.frames.length} frames${n.rate?` · ⭐ ${n.rate[0]||'–'} v ${n.rate[1]||'–'}`:''}</div></div><div class="r">${n.result.win>=0?`<span class="dot d${n.result.win}"></span>`:''}${n.result.tot[0]} – ${n.result.tot[1]} ›</div></button>`).join('')}</div>
   </div>`;
 }
 function nightsTable(){
-  return `<table class="tv mt"><tr><th>Night</th><th>${N(0)}</th><th>${N(1)}</th><th>Pts</th></tr>${S.nights.slice().reverse().map(n=>`<tr><td>${fmtDate(n.date)}</td><td>${n.result.tot[0]}</td><td>${n.result.tot[1]}</td><td>${n.result.pts[0]} v ${n.result.pts[1]}</td></tr>`).join('')}</table>`;
+  return `<table class="tv mt"><tr><th>Night</th><th>${N(0)}</th><th>${N(1)}</th><th>Pts</th></tr>${NF().slice().reverse().map(n=>`<tr><td>${fmtDate(n.date)}</td><td>${n.result.tot[0]}</td><td>${n.result.tot[1]}</td><td>${n.result.pts[0]} v ${n.result.pts[1]}</td></tr>`).join('')}</table>`;
 }
 
 function viewLogin(){
@@ -1093,8 +1114,14 @@ function viewSettings(){
   return `
   <div class="card">
     <h3>Players</h3>
+    <!--players-->
     <div class="li"><div class="row grow"><span class="dot d0"></span><input data-act="name" data-p="0" value="${N(0)}" maxlength="14"></div></div>
     <div class="li"><div class="row grow"><span class="dot d1"></span><input data-act="name" data-p="1" value="${N(1)}" maxlength="14"></div></div>
+  </div>
+  <div class="card">
+    <h3>📍 Places</h3>
+    ${S.venues.map((v,i)=>`<div class="li"><div>${esc(v)} <span class="muted" style="font-size:12px">· ${S.nights.filter(n=>n.venue===v).length} nights</span></div>${S.venues.length>1?`<button class="pill" data-act="delv" data-i="${i}">Remove</button>`:''}</div>`).join('')}
+    <div class="muted" style="font-size:12px;margin-top:6px">Removing a place keeps its nights in the history. Add new places from the Tonight screen.</div>
   </div>
   <div class="card">
     <h3>Options</h3>
@@ -1177,7 +1204,7 @@ function drawWorm(el){
   svg.addEventListener('pointerleave',()=>{tip.style.opacity=0; xh.setAttribute('opacity',0);});
 }
 function drawBars(el){
-  const nights=S.nights.slice(-10);
+  const nights=NF().slice(-10);
   const W=el.clientWidth||340, H=190, pl=26, pr=6, pt=10, pb=26;
   const mx=Math.max(4,...nights.map(n=>Math.max(...n.result.tot)));
   const gw=(W-pl-pr)/nights.length, bw=Math.min(22,(gw-10)/2);
@@ -1216,7 +1243,7 @@ async function shareCard(id){
   const g=x.createLinearGradient(0,0,0,1350); g.addColorStop(0,'#17352a'); g.addColorStop(1,'#0b1a13'); x.fillStyle=g; x.fillRect(0,0,1080,1350);
   x.textAlign='center';
   x.fillStyle='#f2c94c'; x.font='90px "Bebas Neue", Impact, sans-serif'; x.fillText('RACKUP',540,130);
-  x.fillStyle='#c3cdc6'; x.font='600 36px Inter, sans-serif'; x.fillText(fmtDate(n.date).toUpperCase(),540,190);
+  x.fillStyle='#c3cdc6'; x.font='600 36px Inter, sans-serif'; x.fillText((fmtDate(n.date)+(n.venue?'  ·  '+n.venue:'')).toUpperCase(),540,190);
   // names + score
   x.font='800 56px Inter, sans-serif';
   x.fillStyle='#C4851A'; x.fillRect(120,260,380,10); x.fillStyle='#3E8FD6'; x.fillRect(580,260,380,10);
@@ -1271,6 +1298,11 @@ document.addEventListener('click',e=>{
       else u.h[pr[1]][+pr[2]]=Math.max(0,Math.min(5,u.h[pr[1]][+pr[2]]+dv));
       render(); break; }
     case 'start': startNight(); break;
+    case 'pickv': UI.setup.venue=d.v; render(); break;
+    case 'addv': UI.addV=!UI.addV; render(); if(UI.addV) setTimeout(()=>{const i=document.getElementById('newv'); if(i) i.focus();},50); break;
+    case 'savev': { const v=(document.getElementById('newv').value||'').trim(); if(v){ if(!S.venues.includes(v)) S.venues.push(v); UI.setup.venue=v; save(); } UI.addV=false; render(); break; }
+    case 'delv': S.venues.splice(+d.i,1); save(); render(); break;
+    case 'vfilter': UI.venue=d.v||null; UI.view=null; render(); break;
     case 'pickfirst': UI.setup.first=+d.p; UI.setup.lag=+d.p; UI.setup.tossed=false; render(); break;
     case 'toss': { const p=Math.random()<0.5?0:1; UI.setup.first=p; UI.setup.lag=null; UI.setup.tossed=true; render(); toast('🪙 '+S.names[p].toUpperCase(), 'Breaks first'); break; }
     case 'rule': UI.setup.rule[d.g]=d.r; render(); break;
