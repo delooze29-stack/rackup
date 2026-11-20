@@ -456,7 +456,7 @@ function startNight(){
     games:{}, order:[...u.games], frames:[], g:u.games[0], ended:false, first:u.first, lag:u.lag, rule:{...u.rule}, bov:{}};
   S.set.rule={...u.rule};
   u.games.forEach(g=>{ S.cur.games[g]={race:u.race[g], start:u.h[g], mins:u.mins[g]}; S.set.race[g]=u.race[g]; });
-  S.cur.games[u.games[0]].t0=Date.now(); S.set.mins={...u.mins};
+  S.set.mins={...u.mins};
   S.set.games=[...u.games];
   UI.setup=null; save(); render();
 }
@@ -761,9 +761,10 @@ function viewSetup(){
     ${u.games.map((g,i)=>`<div style="padding:10px 0;border-top:${i?'1px solid var(--line)':'0'}">
       <div class="row between"><div class="row" style="gap:8px"><span class="pill" style="font-size:13px">${i+1}</span><b style="font-size:16px">${GL(g)}</b></div>
         ${i>0?`<button class="pill" data-act="moveup" data-g="${g}">↑ Move up</button>`:''}</div>
-      <div class="row between" style="margin-top:8px"><span class="muted" style="font-size:13px">Frames</span>${step('r_'+g,raceLbl(u.race[g]))}</div>
-      <div class="row between" style="margin-top:6px"><span class="muted" style="font-size:13px">Time</span>${step('m_'+g,minsLbl(u.mins[g]))}</div></div>`).join('')}
-    <div class="muted" style="font-size:12px;margin-top:6px">Open = just keep counting · No limit = no clock${(()=>{const tot=u.games.reduce((a,g)=>a+u.mins[g],0); if(!tot||u.games.some(g=>!u.mins[g])) return ''; const end=new Date(Date.now()+tot*60000); return ` · <b style="color:var(--ink)">done about ${end.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</b>`;})()}</div>
+      <div class="row between" style="margin-top:8px"><span class="muted" style="font-size:13px">How long</span>${step('m_'+g,minsLbl(u.mins[g]))}</div>
+      <div class="row between" style="margin-top:6px"><span class="muted" style="font-size:13px">Race to <span style="font-size:11px">(optional)</span></span>${step('r_'+g,raceLbl(u.race[g]))}</div>
+</div>`).join('')}
+    <div class="muted" style="font-size:12px;margin-top:6px">The clock starts when you press Start on each game${(()=>{const tot=u.games.reduce((a,g)=>a+u.mins[g],0); if(!tot||u.games.some(g=>!u.mins[g])) return ''; const end=new Date(Date.now()+tot*60000); return ` · <b style="color:var(--ink)">done about ${end.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</b>`;})()}</div>
   </div>
   <div class="card">
     <h3>🎯 Lag for the break</h3>
@@ -780,14 +781,37 @@ function viewSetup(){
 
 function timeLeft(G){ return G.t0 && G.mins ? G.t0 + (G.mins+(G.extra||0))*60000 - Date.now() : null; }
 const fmtLeft=ms=>{ const t=Math.max(0,Math.round(ms/1000)), h=Math.floor(t/3600), m=Math.floor(t%3600/60), sec=t%60; return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`; };
+const fmtDur=ms=>{ const m=Math.round(ms/60000); return m<60?`${m} min`:`${Math.floor(m/60)}h ${m%60}m`; };
 function timerBar(n,g,nextG){
-  const G=n.games[g], left=timeLeft(G); if(left==null) return '';
+  const G=n.games[g]; if(!G.t0 || G.done) return '';
+  const left=timeLeft(G);
+  if(left==null) return `<div class="sinfo" style="align-items:center"><span>⏱ ${GL(g)} · <b id="tmr" style="font-size:16px">${fmtLeft(Date.now()-G.t0)} played</b></span>
+    <button class="btn" style="padding:8px 12px" data-act="finishgame">🏁 Finish ${GL(g)}</button></div>`;
   const tot=(G.mins+(G.extra||0))*60000, pct=Math.max(0,Math.min(100,left/tot*100)), up=left<=0;
-  return `<div class="sinfo" id="tmrbox" style="flex-direction:column;gap:6px;${up?'background:#3a1512;border-color:#6b2a24':''}">
+  return `<div class="sinfo" id="tmrbox" style="flex-direction:column;gap:8px;${up?'background:#3a1512;border-color:#6b2a24':''}">
     <div class="row between" style="width:100%"><span>⏱ ${GL(g)} <b id="tmr" style="font-size:16px">${up?"Time's up":fmtLeft(left)+' left'}</b></span>
       <button class="pill" data-act="addtime">+10 min</button></div>
     <div class="mom" style="height:8px;width:100%"><div id="tmrfill" class="fill" style="left:0;width:${pct}%;background:${pct<15?'var(--bad)':'var(--gold)'}"></div></div>
-    ${up?`<div class="row between" style="width:100%"><span style="color:#ffb4ab;font-weight:700">Finish this frame${nextG?`, then on to ${GL(nextG).toLowerCase()}`:', then call it a night'}</span>${nextG?`<button class="btn" style="padding:8px 12px;white-space:nowrap" data-act="game" data-g="${nextG}">${GL(nextG)} →</button>`:''}</div>`:''}
+    ${up?`<div style="color:#ffb4ab;font-weight:700;width:100%">Finish this frame, then finish the game</div>`:''}
+    <button class="btn block ${up?'primary':''}" data-act="finishgame">🏁 Finish ${GL(g)}${nextG?`, then ${GL(nextG).toLowerCase()}`:''}</button>
+  </div>`;
+}
+function readyCard(n,g,c){
+  const gl=gamesOf(n), i=gl.indexOf(g), G=n.games[g];
+  return `<div class="card center" style="padding:22px 16px;margin-top:12px">
+    <div class="muted" style="font-size:13px">Game ${i+1} of ${gl.length}${i>0?` · ${GL(gl[i-1])} finished`:''}</div>
+    <div class="big" style="font-size:52px;line-height:1.05;margin:6px 0">${GL(g).toUpperCase()}</div>
+    <div style="font-size:14px">${G.mins?`⏱ ${minsLbl(G.mins)}`:'No time limit'}${G.race?` · race to ${G.race}`:''}</div>
+    <div style="margin:12px 0 4px">${breakLine(n,g)}</div>
+    <button class="btn primary block" style="font-size:19px;padding:18px;margin-top:10px" data-act="startgame">▶ Start ${GL(g)}</button>
+  </div>`;
+}
+function doneCard(n){
+  const c=calc(n);
+  return `<div class="card center" style="padding:22px 16px;margin-top:12px">
+    <div style="font-size:34px">🏁</div><div class="big" style="font-size:40px">ALL GAMES DONE</div>
+    <div class="muted" style="font-size:13px;margin-bottom:12px">${gamesOf(n).map(g=>`${GL(g)} ${c.sc[g][0]}–${c.sc[g][1]}`).join(' · ')}</div>
+    <button class="btn primary block" style="font-size:17px;padding:16px" data-act="end">${UI.endArm?'Tap again to end the night':'🏁 End the night'}</button>
   </div>`;
 }
 function viewLive(){
@@ -808,13 +832,14 @@ function viewLive(){
   };
   const gl=gamesOf(n), nextG=gl[gl.indexOf(g)+1];
   return `
-  ${gl.length>1?`<div class="gsw">${gl.map(x=>`<button class="${g===x?'on':''}" data-act="game" data-g="${x}">${GL(x).toUpperCase()}<small>${c.sc[x][0]} – ${c.sc[x][1]}${n.games[x].race?` · race ${n.games[x].race}`:''}</small></button>`).join('')}</div>`
+  ${gl.length>1?`<div class="gsw">${gl.map(x=>`<button class="${g===x&&!n.allDone?'on':''}" data-act="game" data-g="${x}">${n.games[x].done?'✓ ':''}${GL(x).toUpperCase()}<small>${c.sc[x][0]} – ${c.sc[x][1]}${n.games[x].race?` · race ${n.games[x].race}`:''}</small></button>`).join('')}</div>`
    :`<div class="center"><span class="pill" style="font-size:13px">${GL(g).toUpperCase()} NIGHT</span></div>`}
+  ${n.allDone ? doneCard(n) : !n.games[g].t0 ? readyCard(n,g,c) : `${n.games[g].done?`<div class="wonbar" style="margin-top:12px"><span>✓ ${GL(g)} finished · ${fmtDur((n.games[g].t1||Date.now())-n.games[g].t0)}</span><button class="pill" data-act="reopen">Reopen</button></div>`:''}
   ${g==='s' ? snookerBoard(n,c) : `<div class="board ${hill?'decider':''}">
     ${panel(0)}
     <div class="vs"><div class="big">V</div><div>${race?`Race<br>to ${race}`:'Open<br>play'}</div><div>Frame<br><b style="color:var(--ink)">${n.frames.length+1}</b></div></div>
     ${panel(1)}
-  </div>${breakLine(n,g)}`}
+  </div>${breakLine(n,g)}`}`}
   ${hill?`<div class="decbar">⚠️ HILL-HILL · DECIDER</div>`:''}
   ${timerBar(n,g,nextG)}
   ${winner>=0?`<div class="wonbar"><span>🏆 <b>${N(winner)}</b> wins the ${GL(g).toLowerCase()} race</span>${nextG?`<button class="btn" style="padding:8px 12px;white-space:nowrap" data-act="game" data-g="${nextG}">On to ${GL(nextG).toLowerCase()} →</button>`:''}</div>`:''}
@@ -1217,7 +1242,7 @@ document.addEventListener('click',e=>{
     case 'tab': UI.tab=d.t; UI.view=null; UI.cmp=null; render(); window.scrollTo(0,0); break;
     case 'st': { const u=UI.setup, dv=+d.d;
       const pr=d.k.split('_');
-      if(pr[0]==='m') u.mins[pr[1]]=Math.max(0,Math.min(300,u.mins[pr[1]]+dv*15));
+      if(pr[0]==='m'){ const L=[0,30,45,60,90,120,150,180,210,240,300]; let i=L.indexOf(u.mins[pr[1]]); if(i<0) i=0; u.mins[pr[1]]=L[Math.max(0,Math.min(L.length-1,i+dv))]; }
       else if(pr[0]==='r') u.race[pr[1]]=Math.max(0,Math.min(25,u.race[pr[1]]+dv));
       else u.h[pr[1]][+pr[2]]=Math.max(0,Math.min(5,u.h[pr[1]][+pr[2]]+dv));
       render(); break; }
@@ -1238,8 +1263,16 @@ document.addEventListener('click',e=>{
     case 'sreds': { const sn=snkInit(S.cur); sn.reds=+d.r; S.set.reds=+d.r; save(); render(); break; }
     case 'sover': snkOver(); break;
     case 'pickg': { const u=UI.setup; u.games = u.games.includes(d.g) ? u.games.filter(x=>x!==d.g) : [...u.games, d.g]; render(); break; }
-    case 'game': S.cur.g=d.g; if(!S.cur.games[d.g].t0) S.cur.games[d.g].t0=Date.now(); save(); render(); break;
+    case 'game': S.cur.g=d.g; S.cur.allDone=false; save(); render(); break;
     case 'moveup': { const u=UI.setup, i=u.games.indexOf(d.g); if(i>0){ [u.games[i-1],u.games[i]]=[u.games[i],u.games[i-1]]; } render(); break; }
+    case 'startgame': { const G=S.cur.games[S.cur.g]; G.t0=Date.now(); G.done=false; save(); render(); toast(`${GL(S.cur.g).toUpperCase()} · GAME ON`, G.mins?`${minsLbl(G.mins)} on the clock`:'No time limit','tick'); break; }
+    case 'finishgame': { const n=S.cur, g=n.g, G=n.games[g], c=calc(n); G.done=true; G.t1=Date.now();
+      const gl=gamesOf(n), nx=gl.slice(gl.indexOf(g)+1).find(x=>!n.games[x].done);
+      if(nx) n.g=nx; else n.allDone=true;
+      save(); render(); window.scrollTo(0,0);
+      const w=c.sc[g][0]===c.sc[g][1]?-1:(c.sc[g][0]>c.sc[g][1]?0:1);
+      toast(`${GL(g).toUpperCase()} DONE`, w<0?`All square ${c.sc[g][0]}–${c.sc[g][1]}`:`${S.names[w]} wins it ${Math.max(...c.sc[g])}–${Math.min(...c.sc[g])}`); break; }
+    case 'reopen': { const G=S.cur.games[S.cur.g]; G.done=false; S.cur.allDone=false; save(); render(); break; }
     case 'addtime': { const G=S.cur.games[S.cur.g]; G.extra=(G.extra||0)+10; G.tup=false; save(); render(); break; }
     case 'award': openAward(+d.w); break;
     case 'tgl': UI.sel.gl.has(d.k)?UI.sel.gl.delete(d.k):UI.sel.gl.add(d.k); drawAward(); break;
@@ -1280,7 +1313,9 @@ render();
 cloudInit();
 setInterval(()=>{
   const n=S.cur; if(!n || UI.tab!=='night' || !n.games[n.g]) return;
-  const G=n.games[n.g], left=timeLeft(G); if(left==null) return;
+  const G=n.games[n.g]; if(!G.t0 || G.done || n.allDone) return;
+  const left=timeLeft(G);
+  if(left==null){ const el=document.getElementById('tmr'); if(el) el.textContent=fmtLeft(Date.now()-G.t0)+' played'; return; }
   if(left<=0 && !G.tup){ G.tup=true; save(); const gl=gamesOf(n), nx=gl[gl.indexOf(n.g)+1];
     if(!document.getElementById('ov').classList.contains('show')) render();
     toast("TIME'S UP", nx?`Finish the frame, then on to ${GL(nx).toLowerCase()}`:'Finish the frame and call it a night','bad'); return; }
