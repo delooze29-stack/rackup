@@ -290,7 +290,7 @@ async function cloudInit(){
     const app=A.initializeApp(FIREBASE_CONFIG);
     let db; try{ db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})}); }catch(e){ db=F.getFirestore(app); }
     const auth=Au.getAuth(app);
-    CLOUD.fs=F; CLOUD.ref=F.doc(db,'rackup','main');
+    CLOUD.fs=F; CLOUD.db=db; CLOUD.ref=F.doc(db,'rackup','main');
     CLOUD.signIn=(e,p)=>Au.signInWithEmailAndPassword(auth,e,p);
     CLOUD.signOut=()=>Au.signOut(auth);
     Au.onAuthStateChanged(auth,u=>{
@@ -677,6 +677,26 @@ function snookerBoard(n,c){
 }
 
 /* ---------------- render ---------------- */
+const PLAYER_EMAILS=['mathewdoughty@live.co.uk','claytongary@sky.com'];   // same order as the names
+const meIdx=()=>{ const e=(CLOUD.user&&CLOUD.user.email||'').toLowerCase(); const i=PLAYER_EMAILS.indexOf(e); return i; };
+function freshState(){ return {v:1, names:S.names, set:S.set, nights:[], cur:null, owed:[0,0]}; }
+function doWipe(){
+  if(CLOUD.user && CLOUD.fs && CLOUD.db){
+    try{ CLOUD.fs.setDoc(CLOUD.fs.doc(CLOUD.db,'rackup','backup-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')),{data:JSON.stringify(S), by:CLOUD.user.email||''}); }catch(e){}
+  }
+  S=freshState(); UI.setup=null; UI.view=null; save(); render();
+}
+function resetBanner(){
+  const r=S.resetReq; if(!r || !CLOUD.user) return '';
+  const who=r.by>=0?N(r.by):esc(r.email||'Someone');
+  if((r.email||'')===(CLOUD.user.email||'')) return `<div class="card" style="border-color:#6b5a14;background:rgba(44,38,8,.85)">
+    <div><b>⏳ Reset requested</b></div><div class="muted" style="font-size:13px;margin:4px 0 10px">Waiting for ${r.by>=0?N(1-r.by):'the other player'} to agree on their phone.</div>
+    <button class="btn block" data-act="resetcancel">Cancel request</button></div>`;
+  return `<div class="card" style="border-color:#6b2a24;background:rgba(58,21,18,.9)">
+    <div style="font-size:16px"><b>⚠️ ${who} wants to reset everything</b></div>
+    <div style="font-size:13px;margin:4px 0 10px;color:#ffd9d4">All nights, records and the rivalry go back to zero for both of you. A backup copy is kept.</div>
+    <div class="row"><button class="btn grow" data-act="resetno">No chance</button><button class="btn grow danger" data-act="resetyes">Agree &amp; reset</button></div></div>`;
+}
 function render(){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===UI.tab));
   const pill=document.getElementById('hdrpill');
@@ -685,9 +705,9 @@ function render(){
   const v=document.getElementById('view');
   if(CLOUD.on && !CLOUD.ready){ v.innerHTML=`<div class="card center" style="padding:30px"><div class="big" style="font-size:28px">Connecting…</div><div class="muted">Getting the latest scores</div></div>`; return; }
   if(CLOUD.on && !CLOUD.user){ v.innerHTML=viewLogin(); return; }
-  if(UI.tab==='night') v.innerHTML = S.cur ? viewLive() : viewSetup();
-  else if(UI.tab==='rival') v.innerHTML = UI.view ? viewNight(UI.view) : viewRival();
-  else v.innerHTML = viewSettings();
+  if(UI.tab==='night') v.innerHTML = resetBanner() + (S.cur ? viewLive() : viewSetup());
+  else if(UI.tab==='rival') v.innerHTML = resetBanner() + (UI.view ? viewNight(UI.view) : viewRival());
+  else v.innerHTML = resetBanner() + viewSettings();
   // charts after DOM exists
   document.querySelectorAll('[data-chart]').forEach(drawChart);
 }
@@ -1094,7 +1114,11 @@ function viewSettings(){
     <div id="bkmsg" class="muted center" style="font-size:12px;margin-top:6px"></div>
   </div>
   ${CLOUD.user?`<div class="card"><h3>Account</h3><div class="li"><div>Signed in as <b>${esc(CLOUD.user.email||'')}</b><div class="muted" style="font-size:12px">${document.getElementById('hdrsub').textContent}</div></div><button class="btn" data-act="signout">Sign out</button></div></div>`:''}
-  <button class="btn block danger" data-act="reset">${UI.resetArm?(CLOUD.user?'Tap again: wipes ALL history for BOTH of you':'Tap again: wipes ALL history'):'Reset everything'}</button>
+  <div class="card"><h3>Reset scores &amp; history</h3>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">${CLOUD.user?'Wipes every night, record and the rivalry for both of you. The other player has to agree on their phone first. A backup copy is kept.':'Wipes every night, record and the rivalry on this phone.'}</div>
+    ${CLOUD.user && S.resetReq ? '<div class="muted center">A reset request is waiting. See the top of the screen.</div>' :
+      `<button class="btn block danger" data-act="reset">${UI.resetArm?(CLOUD.user?'Tap again to send the request':'Tap again: wipes ALL history'):(CLOUD.user?'Ask to reset everything':'Reset everything')}</button>`}
+    <div class="muted" style="font-size:12px;margin-top:8px">To remove just one night, open it from Rivalry and use Delete this night at the bottom.</div></div>
   <div class="muted center" style="font-size:11px;margin:14px 0">RackUp v2${CLOUD.on?' · online':''}</div>`;
 }
 
@@ -1242,7 +1266,7 @@ document.addEventListener('click',e=>{
     case 'tab': UI.tab=d.t; UI.view=null; UI.cmp=null; render(); window.scrollTo(0,0); break;
     case 'st': { const u=UI.setup, dv=+d.d;
       const pr=d.k.split('_');
-      if(pr[0]==='m'){ const L=[0,30,45,60,90,120,150,180,210,240,300]; let i=L.indexOf(u.mins[pr[1]]); if(i<0) i=0; u.mins[pr[1]]=L[Math.max(0,Math.min(L.length-1,i+dv))]; }
+      if(pr[0]==='m') u.mins[pr[1]]=Math.max(0,Math.min(360,Math.round((u.mins[pr[1]]||0)/15)*15+dv*15));
       else if(pr[0]==='r') u.race[pr[1]]=Math.max(0,Math.min(25,u.race[pr[1]]+dv));
       else u.h[pr[1]][+pr[2]]=Math.max(0,Math.min(5,u.h[pr[1]][+pr[2]]+dv));
       render(); break; }
@@ -1299,7 +1323,14 @@ document.addEventListener('click',e=>{
     case 'signout': if(CLOUD.signOut) CLOUD.signOut(); break;
     case 'import': { const m=document.getElementById('bkmsg');
       try{ const o=JSON.parse(document.getElementById('imp').value); if(!o||!Array.isArray(o.nights)) throw 0; S=o; save(); m.textContent='Imported.'; render(); }catch(err){ m.textContent='That doesn\'t look like a RackUp backup.'; } break; }
-    case 'reset': if(UI.resetArm){ const names=S.names; S={v:1,names,set:{race:{'9':0,'8':0,'s':0},games:['9','8'],fx:true},nights:[],cur:null,owed:[0,0]}; UI.resetArm=false; UI.setup=null; save(); render(); } else { UI.resetArm=true; render(); } break;
+    case 'reset': if(!UI.resetArm){ UI.resetArm=true; render(); break; }
+      UI.resetArm=false;
+      if(CLOUD.user){ S.resetReq={by:meIdx(), email:CLOUD.user.email||'', at:Date.now()}; save(); render(); toast('REQUEST SENT', 'Waiting for the other player to agree','tick'); }
+      else doWipe();
+      break;
+    case 'resetcancel': delete S.resetReq; save(); render(); break;
+    case 'resetno': delete S.resetReq; save(); render(); toast('RESET BLOCKED','The history stays','tick'); break;
+    case 'resetyes': delete S.resetReq; doWipe(); toast('ALL RESET','Fresh start. Backup kept','tick'); break;
   }
 });
 document.addEventListener('change',e=>{
