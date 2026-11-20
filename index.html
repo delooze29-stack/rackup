@@ -364,7 +364,7 @@ function migrate(){
 }
 migrate();
 const save = ()=>DB.save(S);
-const gamesOf = n=>GAMES.filter(g=>n.games[g]);
+const gamesOf = n=> n.order ? n.order.filter(g=>n.games[g]) : GAMES.filter(g=>n.games[g]);
 const N = i=>esc(S.names[i]);
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 const fmtDate = d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
@@ -453,9 +453,10 @@ function confetti(){
 function startNight(){
   const u=UI.setup; if(!u.games.length) return;
   S.cur={id:'n'+Date.now(), date:new Date().toISOString(),
-    games:{}, frames:[], g:u.games[0], ended:false, first:u.first, lag:u.lag, rule:{...u.rule}, bov:{}};
+    games:{}, order:[...u.games], frames:[], g:u.games[0], ended:false, first:u.first, lag:u.lag, rule:{...u.rule}, bov:{}};
   S.set.rule={...u.rule};
-  u.games.forEach(g=>{ S.cur.games[g]={race:u.race[g], start:u.h[g]}; S.set.race[g]=u.race[g]; });
+  u.games.forEach(g=>{ S.cur.games[g]={race:u.race[g], start:u.h[g], mins:u.mins[g]}; S.set.race[g]=u.race[g]; });
+  S.cur.games[u.games[0]].t0=Date.now(); S.set.mins={...u.mins};
   S.set.games=[...u.games];
   UI.setup=null; save(); render();
 }
@@ -736,8 +737,9 @@ function formCard(){
   return `<div class="card"><div class="row between"><h3 style="margin:0">📋 Form book</h3><span class="muted" style="font-size:11px">oldest → latest</span></div>${row(0)}${row(1)}</div>`;
 }
 
+const minsLbl=m=> !m ? 'No limit' : m<60 ? `${m} min` : `${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}`;
 function viewSetup(){
-  if(!UI.setup){ UI.setup={games:[...S.set.games], race:{...S.set.race}, h:{'9':[0,0],'8':[0,0],'s':[0,0]}, first:0, lag:null, rule:{...(S.set.rule||{'9':'alt','8':'alt'})}}; }
+  if(!UI.setup){ UI.setup={games:[...S.set.games], mins:{'9':0,'8':0,'s':0,...(S.set.mins||{})}, race:{...S.set.race}, h:{'9':[0,0],'8':[0,0],'s':[0,0]}, first:0, lag:null, rule:{...(S.set.rule||{'9':'alt','8':'alt'})}}; }
   const u=UI.setup;
   const step=(k,label)=>`<div class="step"><button data-act="st" data-k="${k}" data-d="-1">−</button><b>${label}</b><button data-act="st" data-k="${k}" data-d="1">+</button></div>`;
   const raceLbl=r=>r?`Race ${r}`:'Open';
@@ -752,11 +754,16 @@ function viewSetup(){
   <div class="card">
     <h3>What are you playing tonight?</h3>
     <div class="chips" style="margin:0">${GAMES.map(g=>`<button class="chip ${u.games.includes(g)?'on':''}" data-act="pickg" data-g="${g}" style="flex:1;text-align:center">${ic[g]} ${GL(g)}</button>`).join('')}</div>
-    ${u.games.length>1?`<div class="muted" style="font-size:12px;margin-top:8px">Played in this order: ${u.games.map(GL).join(' → ')}</div>`:''}
+    ${u.games.length>1?`<div class="muted" style="font-size:12px;margin-top:8px">Tap them in the order you're playing. Use ↑ below to rearrange.</div>`:''}
   </div>
   ${u.games.length?`<div class="card">
-    <h3>Format</h3>
-    ${u.games.map((g,i)=>`<div class="li"><div><b>${GL(g)}</b>${i===0?'<div class="muted" style="font-size:12px">Open means you just keep counting</div>':''}</div>${step('r_'+g,raceLbl(u.race[g]))}</div>`).join('')}
+    <h3>Running order</h3>
+    ${u.games.map((g,i)=>`<div style="padding:10px 0;border-top:${i?'1px solid var(--line)':'0'}">
+      <div class="row between"><div class="row" style="gap:8px"><span class="pill" style="font-size:13px">${i+1}</span><b style="font-size:16px">${GL(g)}</b></div>
+        ${i>0?`<button class="pill" data-act="moveup" data-g="${g}">↑ Move up</button>`:''}</div>
+      <div class="row between" style="margin-top:8px"><span class="muted" style="font-size:13px">Frames</span>${step('r_'+g,raceLbl(u.race[g]))}</div>
+      <div class="row between" style="margin-top:6px"><span class="muted" style="font-size:13px">Time</span>${step('m_'+g,minsLbl(u.mins[g]))}</div></div>`).join('')}
+    <div class="muted" style="font-size:12px;margin-top:6px">Open = just keep counting · No limit = no clock${(()=>{const tot=u.games.reduce((a,g)=>a+u.mins[g],0); if(!tot||u.games.some(g=>!u.mins[g])) return ''; const end=new Date(Date.now()+tot*60000); return ` · <b style="color:var(--ink)">done about ${end.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</b>`;})()}</div>
   </div>
   <div class="card">
     <h3>🎯 Lag for the break</h3>
@@ -771,6 +778,18 @@ function viewSetup(){
   :`<div class="muted center">Pick at least one game.</div>`}`;
 }
 
+function timeLeft(G){ return G.t0 && G.mins ? G.t0 + (G.mins+(G.extra||0))*60000 - Date.now() : null; }
+const fmtLeft=ms=>{ const t=Math.max(0,Math.round(ms/1000)), h=Math.floor(t/3600), m=Math.floor(t%3600/60), sec=t%60; return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`; };
+function timerBar(n,g,nextG){
+  const G=n.games[g], left=timeLeft(G); if(left==null) return '';
+  const tot=(G.mins+(G.extra||0))*60000, pct=Math.max(0,Math.min(100,left/tot*100)), up=left<=0;
+  return `<div class="sinfo" id="tmrbox" style="flex-direction:column;gap:6px;${up?'background:#3a1512;border-color:#6b2a24':''}">
+    <div class="row between" style="width:100%"><span>⏱ ${GL(g)} <b id="tmr" style="font-size:16px">${up?"Time's up":fmtLeft(left)+' left'}</b></span>
+      <button class="pill" data-act="addtime">+10 min</button></div>
+    <div class="mom" style="height:8px;width:100%"><div id="tmrfill" class="fill" style="left:0;width:${pct}%;background:${pct<15?'var(--bad)':'var(--gold)'}"></div></div>
+    ${up?`<div class="row between" style="width:100%"><span style="color:#ffb4ab;font-weight:700">Finish this frame${nextG?`, then on to ${GL(nextG).toLowerCase()}`:', then call it a night'}</span>${nextG?`<button class="btn" style="padding:8px 12px;white-space:nowrap" data-act="game" data-g="${nextG}">${GL(nextG)} →</button>`:''}</div>`:''}
+  </div>`;
+}
 function viewLive(){
   const n=S.cur, g=n.g, c=calc(n), race=n.games[g].race;
   const sc=c.sc[g];
@@ -797,6 +816,7 @@ function viewLive(){
     ${panel(1)}
   </div>${breakLine(n,g)}`}
   ${hill?`<div class="decbar">⚠️ HILL-HILL · DECIDER</div>`:''}
+  ${timerBar(n,g,nextG)}
   ${winner>=0?`<div class="wonbar"><span>🏆 <b>${N(winner)}</b> wins the ${GL(g).toLowerCase()} race</span>${nextG?`<button class="btn" style="padding:8px 12px;white-space:nowrap" data-act="game" data-g="${nextG}">On to ${GL(nextG).toLowerCase()} →</button>`:''}</div>`:''}
 
   <div class="card">
@@ -1197,7 +1217,8 @@ document.addEventListener('click',e=>{
     case 'tab': UI.tab=d.t; UI.view=null; UI.cmp=null; render(); window.scrollTo(0,0); break;
     case 'st': { const u=UI.setup, dv=+d.d;
       const pr=d.k.split('_');
-      if(pr[0]==='r') u.race[pr[1]]=Math.max(0,Math.min(25,u.race[pr[1]]+dv));
+      if(pr[0]==='m') u.mins[pr[1]]=Math.max(0,Math.min(300,u.mins[pr[1]]+dv*15));
+      else if(pr[0]==='r') u.race[pr[1]]=Math.max(0,Math.min(25,u.race[pr[1]]+dv));
       else u.h[pr[1]][+pr[2]]=Math.max(0,Math.min(5,u.h[pr[1]][+pr[2]]+dv));
       render(); break; }
     case 'start': startNight(); break;
@@ -1216,8 +1237,10 @@ document.addEventListener('click',e=>{
     case 'sundo': { const sn=snkInit(S.cur); sn.shots.pop(); UI.foul=false; save(); render(); break; }
     case 'sreds': { const sn=snkInit(S.cur); sn.reds=+d.r; S.set.reds=+d.r; save(); render(); break; }
     case 'sover': snkOver(); break;
-    case 'pickg': { const u=UI.setup; u.games = u.games.includes(d.g) ? u.games.filter(x=>x!==d.g) : GAMES.filter(x=>x===d.g||u.games.includes(x)); render(); break; }
-    case 'game': S.cur.g=d.g; save(); render(); break;
+    case 'pickg': { const u=UI.setup; u.games = u.games.includes(d.g) ? u.games.filter(x=>x!==d.g) : [...u.games, d.g]; render(); break; }
+    case 'game': S.cur.g=d.g; if(!S.cur.games[d.g].t0) S.cur.games[d.g].t0=Date.now(); save(); render(); break;
+    case 'moveup': { const u=UI.setup, i=u.games.indexOf(d.g); if(i>0){ [u.games[i-1],u.games[i]]=[u.games[i],u.games[i-1]]; } render(); break; }
+    case 'addtime': { const G=S.cur.games[S.cur.g]; G.extra=(G.extra||0)+10; G.tup=false; save(); render(); break; }
     case 'award': openAward(+d.w); break;
     case 'tgl': UI.sel.gl.has(d.k)?UI.sel.gl.delete(d.k):UI.sel.gl.add(d.k); drawAward(); break;
     case 'tsh': UI.sel.sh.has(d.k)?UI.sel.sh.delete(d.k):UI.sel.sh.add(d.k); drawAward(); break;
@@ -1255,6 +1278,15 @@ document.getElementById('ov').addEventListener('click',e=>{ if(e.target.id==='ov
 window.addEventListener('resize',()=>document.querySelectorAll('[data-chart]').forEach(drawChart));
 render();
 cloudInit();
+setInterval(()=>{
+  const n=S.cur; if(!n || UI.tab!=='night' || !n.games[n.g]) return;
+  const G=n.games[n.g], left=timeLeft(G); if(left==null) return;
+  if(left<=0 && !G.tup){ G.tup=true; save(); const gl=gamesOf(n), nx=gl[gl.indexOf(n.g)+1];
+    if(!document.getElementById('ov').classList.contains('show')) render();
+    toast("TIME'S UP", nx?`Finish the frame, then on to ${GL(nx).toLowerCase()}`:'Finish the frame and call it a night','bad'); return; }
+  const el=document.getElementById('tmr'), fl=document.getElementById('tmrfill');
+  if(el && left>0){ el.textContent=fmtLeft(left)+' left'; const tot=(G.mins+(G.extra||0))*60000, pct=Math.max(0,left/tot*100); fl.style.width=pct+'%'; fl.style.background=pct<15?'var(--bad)':'var(--gold)'; }
+},1000);
 if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
