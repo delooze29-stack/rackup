@@ -1019,59 +1019,136 @@ function report(n){
               `${hi}–${lo} at ${venue}: ${nm(L)} has some serious explaining to do`]);
   }
 
-  // paragraph 1: result
-  const verb = w<0?'drew with' : margin>=5?pick(['thrashed','demolished','hammered']) : margin>=3?pick(['saw off','comfortably beat','got the better of']) : pick(['edged','pipped','narrowly beat']);
-  const gamesTxt = gl.length>1 ? ` across ${gl.map(g=>GL(g).toLowerCase()).join(' and ')} (${gl.map(g=>`${c.sc[g][0]}–${c.sc[g][1]} in the ${GL(g).toLowerCase()}`).join(', ')})` : gl.length?` at ${GL(gl[0]).toLowerCase()}`:'';
+  // ---------- extra facts ----------
+  const prevN = idx>0 ? S.nights[idx-1] : null;
+  let loserRun=0; if(w>=0) for(let i=idx-1;i>=0;i--){ if(S.nights[i].result&&S.nights[i].result.win===w) break; if(S.nights[i].result&&S.nights[i].result.win===L) loserRun++; else break; }   // winner's previous losing run
+  let brokeRun=0; if(w>=0) for(let i=idx-1;i>=0;i--){ if(S.nights[i].result&&S.nights[i].result.win===L) brokeRun++; else break; }
+  const after=oddsFrom(upto).p, nextW = w===0?after:1-after;
+  let changes=0; for(let i=2;i<c.lead.length;i++){ const a=Math.sign(c.lead[i-1]), b2=Math.sign(c.lead[i]); if(a!==0 && b2!==0 && a!==b2) changes++; else if(a===0 && i>1){ const pv=Math.sign(c.lead[i-2]); if(pv!==0 && b2!==0 && pv!==b2) changes++; } }
+  const lastK=(()=>{ const f=n.frames; if(!f.length) return {p:-1,k:0}; let k=0; const p=f[f.length-1].w; for(let i=f.length-1;i>=0&&f[i].w===p;i--) k++; return {p,k}; })();
+  const recBig = w>=0 && prior.every(x=>!x.result || Math.abs(x.result.tot[0]-x.result.tot[1])<margin) && prior.length>=2 && margin>=3;
+  const recFrames = prior.length>=2 && prior.every(x=>x.frames.length<n.frames.length);
+  const atVen = n.venue ? upto.filter(x=>x.venue===n.venue) : [];
+  const venT=[0,0]; atVen.forEach(x=>{ if(x.result&&x.result.win>=0) venT[x.result.win]++; });
+  const mk=d=>{const x=new Date(d); return x.getFullYear()+'-'+x.getMonth();}, monthN=upto.filter(x=>mk(x.date)===mk(n.date)), monT=[0,0]; monthN.forEach(x=>{ if(x.result&&x.result.win>=0) monT[x.result.win]++; });
+  const monName=new Date(n.date).toLocaleDateString('en-GB',{month:'long'});
   const P=[];
-  P.push(w<0 ? `${nm(0)} and ${nm(1)} could not be separated at ${venue} on ${day} night, finishing all square at ${c.tot[0]}–${c.tot[1]}${gamesTxt}.`
-             : `${nm(w)} ${verb} ${nm(L)} ${hi}–${lo} at ${venue} on ${day} night${gamesTxt}.${dur>30*60000?` The action ran to ${fmtDur(dur)} at the table.`:''}`);
 
-  // paragraph 2: how it unfolded
+  // ---------- 1: the result ----------
+  const verb = w<0?'drew with' : margin>=5?pick(['thrashed','demolished','hammered','took apart']) : margin>=3?pick(['saw off','comfortably beat','got the better of']) : pick(['edged','pipped','narrowly beat','just got past']);
+  let p1 = w<0 ? `${nm(0)} and ${nm(1)} could not be separated at ${venue} on ${day} night, finishing all square at ${c.tot[0]}–${c.tot[1]}.`
+               : `${nm(w)} ${verb} ${nm(L)} ${hi}–${lo} at ${venue} on ${day} night.`;
+  if(w>=0 && prior.length>=2){ p1 += pW<0.42 ? ` He went into it as a ${frac(pW)} outsider, so this was one for the punters who like a long shot.` : pW>0.6 ? ` Priced at ${frac(pW)} beforehand, he was the bookies' favourite and duly delivered.` : ` The odds had it close to a coin toss beforehand.`; }
+  if(dur>30*60000) p1 += ` In all, the pair spent ${fmtDur(dur)} at the table and played ${n.frames.length} frames.`;
+  P.push(p1);
+
+  // ---------- 2: how it started ----------
   let p2='';
   if(first){
     if(n.lag!=null) p2 += first.w===n.lag ? `${nm(n.lag)} won the lag and drew first blood in frame one. ` : `${nm(n.lag)} won the lag, but it was ${nm(first.w)} who drew first blood. `;
     else p2 += `${nm(first.w)} drew first blood in frame one. `;
   }
-  if(comeback) p2+=`But this was a night for the brave: ${nm(w)} found himself ${comeback} frame${comeback>1?'s':''} adrift before ${pick(['roaring back','clawing his way back','turning the whole thing on its head'])}. `;
-  else if(w>=0 && first && first.w===L) p2+=`${nm(L)}'s early lead proved a false dawn. `;
-  else if(w>=0 && first && first.w===w) p2+=`${nm(w)} never really looked back. `;
-  if(c.best[run]>=3) p2+=`The key spell was a ${c.best[run]}-frame run from ${nm(run)}${c.best[run]>=5?', and the table looked like it belonged to him':''}. `;
-  if(decider) p2+=`It came down to a hill-hill decider, with nerves jangling on both sides. `;
+  if(comeback) p2 += `${pick(['This was a night for the brave:','Then came the fightback:','What followed was something special:'])} ${nm(w)} found himself ${comeback} frame${comeback>1?'s':''} adrift before ${pick(['roaring back','clawing his way back','turning the whole thing on its head'])}. `;
+  else if(w>=0 && first && first.w===L) p2 += `${nm(L)}'s early lead proved a false dawn. `;
+  else if(w>=0 && first && first.w===w) p2 += pick([`${nm(w)} never really looked back. `,`It set the tone. `]);
+  if(changes>=3) p2 += `The lead changed hands ${changes} times in a proper ding-dong battle. `;
+  else if(changes===0 && w>=0 && n.frames.length>=4 && !comeback) p2 += `${nm(L)} never once got his nose in front. `;
+  if(c.best[run]>=3) p2 += `The key spell was a ${c.best[run]}-frame run from ${nm(run)}${c.best[run]>=5?', and for a while the table looked like it belonged to him':''}. `;
+  if(lastK.k>=3) p2 += lastK.p===w ? `${nm(w)} finished strongly, taking the last ${lastK.k} frames. ` : `${nm(lastK.p)} did win the last ${lastK.k} frames, but it was too little, too late. `;
+  if(decider) p2 += `It even came down to a hill-hill decider, with nerves jangling on both sides. `;
   if(p2) P.push(p2.trim());
 
-  // paragraph 3: moments of magic
+  // ---------- 3: game by game ----------
+  if(gl.length){
+    const res=g=>{ const a=c.sc[g][0], b=c.sc[g][1]; return {a,b,gw:a===b?-1:(a>b?0:1), m:Math.abs(a-b), hi:Math.max(a,b), lo:Math.min(a,b)}; };
+    const gameLine=(g,i)=>{
+      const R2=res(g), G=GL(g), fr=n.frames.filter(f=>f.g===g), GG=n.games[g]||{};
+      let t='';
+      if(R2.gw<0) t = `The ${G} finished all square at ${R2.a}–${R2.b}`;
+      else if(w>=0 && R2.gw===L){
+        t = i===0 ? `${nm(L)} had the better of the ${G}, winning it ${R2.hi}–${R2.lo}` : `${nm(L)} took the ${G} ${R2.hi}–${R2.lo}`;
+      } else {
+        const ww=R2.gw, other=gl.filter(x=>x!==g).map(res).some(o=>o.gw===1-ww);
+        if(other && gl.indexOf(g)>0) t = `${nm(ww)} ${pick(['recovered well to make amends for','bounced back from','put right'])} a ${pick(['poor','disappointing','sloppy'])} ${GL(gl.find(x=>res(x).gw===1-ww)).toLowerCase()} display, ${R2.m>=3?'running away with':'taking'} the ${G} ${R2.hi}–${R2.lo}`;
+        else t = R2.m>=4 ? `${nm(ww)} was dominant in the ${G}, winning it ${R2.hi}–${R2.lo}` : R2.m===1 ? `The ${G} was tight, ${nm(ww)} squeezing it ${R2.hi}–${R2.lo}` : `${nm(ww)} took the ${G} ${R2.hi}–${R2.lo}`;
+      }
+      // colour
+      const extras=[];
+      if(fr.length && R2.gw>=0 && fr[0].w!==R2.gw) extras.push(`despite losing the opening frame`);
+      let br=0,bp=-1,cur=0,cp=-1; fr.forEach(f=>{ if(f.w===cp) cur++; else {cp=f.w;cur=1;} if(cur>br){br=cur;bp=cp;} });
+      if(br>=3) extras.push(`${bp===R2.gw?'helped by':'even with'} ${bp===R2.gw?'a':`${nm(bp)}'s`} run of ${br} straight frames`);
+      if(GG.t0 && GG.t1 && fr.length>=3){ const per=(GG.t1-GG.t0)/fr.length/60000; if(per>=2) extras.push(per<8?`with frames flying by at one every ${Math.round(per)} minutes`:per>20?`in a long, cagey session averaging ${Math.round(per)} minutes a frame`:''); }
+      if(GG.tup) extras.push(`as the clock ran down`);
+      const ex=extras.filter(Boolean).slice(0,2);
+      return t + (ex.length?`, ${ex.join(', ')}`:'') + '.';
+    };
+    let p3=gl.map(gameLine).join(' ');
+    if(w>=0 && gl.length>1 && gl.some(g=>res(g).gw===L) && gl.some(g=>res(g).gw===w)) p3 += ` ${pick([`Honours split on the games, then, but the frame count is what matters.`,`A night of two halves.`,`One each on the games, but ${nm(w)} won more frames overall.`])}`;
+    if(w>=0 && gl.length>1 && gl.every(g=>res(g).gw===w)) p3 += ` A clean sweep of the games for ${nm(w)}.`;
+    P.push(p3);
+  }
+
+  // ---------- 4: snooker detail ----------
+  if(c.sn && c.sn.scored){
+    const sn=c.sn, avg=a=>a.length?(a.reduce((x,y)=>x+y,0)/a.length):0, top=a=>a.length?Math.max(...a):0;
+    let p4=`On the snooker table, ${nm(0)} scored ${sn.pts[0]} points to ${nm(1)}'s ${sn.pts[1]}.`;
+    const tp=top(sn.brk[0])>=top(sn.brk[1])?0:1;
+    if(top(sn.brk[tp])) p4+=` ${nm(tp)}'s ${top(sn.brk[tp])} was the best break of the night`;
+    const a0=avg(sn.brk[0]), a1=avg(sn.brk[1]);
+    if(a0&&a1) p4+=`, and his average visit of ${(tp?a1:a0).toFixed(1)} compares with ${(tp?a0:a1).toFixed(1)} for ${nm(1-tp)}.`; else p4+='.';
+    const fp=sn.fouls[0]>=sn.fouls[1]?0:1; if(sn.fouls[fp]>=2) p4+=` ${nm(fp)} gave away ${sn.fouls[fp]} fouls, which won't please him.`;
+    P.push(p4);
+  }
+
+  // ---------- 5: magic ----------
   const m=[];
   has('gb').forEach(x=>m.push(`${nm(x.p)}'s golden break in frame ${x.i} had the whole club talking`));
   has('br').forEach(x=>m.push(`${nm(x.p)} broke and ran out frame ${x.i}`));
   has('cb').forEach(x=>m.push(`${nm(x.p)} cleared up from the break in frame ${x.i}`));
+  has('ro').forEach(x=>m.push(`${nm(x.p)} ran out from ${nm(1-x.p)}'s miss in frame ${x.i}`));
   has('dish').forEach(x=>m.push(`${nm(x.p)} dished frame ${x.i} without ${nm(1-x.p)} potting a ball`));
   has('ww').forEach(x=>m.push(`${nm(1-x.p)} was left with all seven on the table in frame ${x.i}`));
+  has('cmb').forEach(x=>m.push(`${nm(x.p)} sneaked an early 9 in frame ${x.i}`));
   has('c100').forEach(x=>m.push(`${nm(x.p)} made a century, no less`));
-  if(!has('c100').length && (c.hb[0]>=20||c.hb[1]>=20)){ const p=c.hb[0]>=c.hb[1]?0:1; m.push(`${nm(p)} knocked in a ${c.hb[p]} break`); }
+  if(!has('c100').length && (c.hb[0]>=20||c.hb[1]>=20) && !(c.sn&&c.sn.scored)){ const p=c.hb[0]>=c.hb[1]?0:1; m.push(`${nm(p)} knocked in a ${c.hb[p]} break`); }
   has('otb').forEach(x=>m.push(`frame ${x.i} went right down to the final black`));
   has('snk').forEach(x=>m.push(`${nm(x.p)} needed snookers in frame ${x.i} and still won it`));
-  if(m.length) P.push(`${pick(['Moment of the night?','Highlights?','The magic?'])} ${m.slice(0,4).map((t,i)=>i?t:t[0].toUpperCase()+t.slice(1)).join('; ')}.`);
+  if(m.length) P.push(`${pick(['Moments of the night?','Highlights?','The magic?','What will they remember?'])} ${m.slice(0,5).map((t,i)=>i?t:t[0].toUpperCase()+t.slice(1)).join('; ')}.`);
 
-  // paragraph 4: hall of shame
+  // ---------- 6: hall of shame ----------
   const shameTxt={s9:'scratched on the 9',hang:pick(['missed a sitter his nan would have potted','missed a hanger','fluffed a hanger over the pocket']),'3f':'lost a frame on three fouls',fb:'fouled the black',e8:'potted the black early',inoff:'went in-off',miss:'missed a sitter',foulb:'fouled on the black'};
   if(shame.length){
     const byP=[0,1].map(p=>shame.filter(x=>x.p===p));
     const worstP=byP[0].length>=byP[1].length?0:1;
-    P.push(`It wasn't all pretty. ${nm(worstP)} ${byP[worstP].slice(0,2).map(x=>shameTxt[x.k]).join(' and ')}${byP[worstP].length>2?`, among other crimes`:''}${byP[1-worstP].length?`, while ${nm(1-worstP)} ${shameTxt[byP[1-worstP][0].k]}`:''}. ${pick(['The hall of shame has been updated.','Neither will want to see the replays.','The less said, the better.'])}`);
+    P.push(`It wasn't all pretty. ${nm(worstP)} ${byP[worstP].slice(0,2).map(x=>shameTxt[x.k]).join(' and ')}${byP[worstP].length>2?`, among ${byP[worstP].length-2} other crimes`:''}${byP[1-worstP].length?`, while ${nm(1-worstP)} ${shameTxt[byP[1-worstP][0].k]}`:''}. ${pick(['The hall of shame has been updated.','Neither will want to see the replays.','The less said, the better.'])}`);
   }
 
-  // paragraph 5: ratings + verdict
-  let p5='';
+  // ---------- 7: what they said (ratings) ----------
   if(r[0]||r[1]){
-    const say=(p)=>{ const v=r[p]; if(!v) return ''; return v>=8?`${nm(p)} gave himself a confident ${v}/10`: v>=6?`${nm(p)} marked himself a solid ${v}/10`: v>=4?`${nm(p)} could only manage a ${v}/10 on his own scorecard`:`${nm(p)} admitted it was a dismal night, rating himself just ${v}/10`; };
-    p5+=[say(0),say(1)].filter(Boolean).join(', while ')+'. ';
+    const say=p=>{ const v=r[p]; if(!v) return ''; const won=p===w, lost=p===L;
+      if(won && v<=5) return `Despite winning, ${nm(p)} gave himself only ${v}/10. Harsh, or honest?`;
+      if(lost && v>=7) return `${nm(p)} reckoned he played a ${v}/10, though the scoreline might suggest otherwise.`;
+      return v>=9?`${nm(p)} rated his own display a near-perfect ${v}/10.` : v>=7?`${nm(p)} gave himself a confident ${v}/10.` : v>=5?`${nm(p)} marked himself a so-so ${v}/10.` : v>=3?`${nm(p)} could only manage ${v}/10 on his own scorecard.` : `${nm(p)} admitted it was a shocker, rating himself just ${v}/10.`; };
+    let p7=[say(0),say(1)].filter(Boolean).join(' ');
+    if(r[0]&&r[1] && w>=0 && r[L]>r[w]) p7+=` Funny old game: the loser rated himself higher than the winner.`;
+    P.push(p7);
   }
+
+  // ---------- 8: the bigger picture ----------
   if(w>=0){
-    if(prior.length>=2) p5+= pW<0.42?`The bookies had ${nm(w)} as the outsider, so this one will sting for ${nm(L)}. ` : pW>0.6?`It went the way the odds said it would. `:'';
-    if(streak>=2) p5+=`That's ${streak} nights on the bounce for ${nm(w)}. `;
-    p5+=`The rivalry now stands at ${tally[w]}–${tally[L]} to ${tally[w]>=tally[L]?nm(w):nm(L)}${tally[w]===tally[L]?' (all square)':''}. ${nm(L)} is on the drinks.`;
+    let p8='';
+    if(streak>=2) p8+=`That's ${streak} nights on the bounce for ${nm(w)}. `;
+    if(brokeRun>=2) p8+=`It also ends a run of ${brokeRun} straight nights for ${nm(L)}. `;
+    else if(loserRun===0 && prevN && prevN.result && prevN.result.win===L) p8+=`Revenge, too, for last time out. `;
+    if(recBig) p8+=`It's the biggest winning margin in the rivalry so far. `;
+    if(recFrames) p8+=`And at ${n.frames.length} frames, it was the longest night yet. `;
+    if(n.venue && atVen.length>=2) p8+=`${nm(w)}'s record at ${n.venue} now reads ${venT[w]}–${venT[L]}. `;
+    if(monthN.length>=2) p8+= monT[w]>monT[L]?`${nm(w)} leads the ${monName} trophy ${monT[w]}–${monT[L]}. `: monT[w]===monT[L]?`The ${monName} trophy is level at ${monT[0]}–${monT[1]}. `:`${nm(L)} still leads the ${monName} trophy ${monT[L]}–${monT[w]}. `;
+    p8+=`Overall the rivalry stands at ${Math.max(tally[w],tally[L])}–${Math.min(tally[w],tally[L])}${tally[w]===tally[L]?', all square':` to ${tally[w]>tally[L]?nm(w):nm(L)}`}. `;
+    p8+=`The bookies have ${nm(w)} at ${frac(nextW)} for next time${prior.length?` (he was ${frac(pW)} before tonight)`:''}. `;
+    p8+=`${nm(L)} is on the drinks.`;
+    P.push(p8.trim());
   }
-  if(p5) P.push(p5.trim());
 
   // boxes
   const star = w>=0 ? w : (c.pts[0]>=c.pts[1]?0:1);
