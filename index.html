@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>RackUp · Pool &amp; Snooker Scorecard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=Merriweather:ital,wght@0,400;0,700;1,400&family=UnifrakturMaguntia&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#0b1a13;--felt:#13241c;--card:#1a2f25;--card2:#223b2f;--line:#2c4a3b;
@@ -81,6 +81,19 @@ header.top{display:flex;align-items:center;justify-content:space-between;padding
 .smini{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .smini .pill{padding:7px 10px;font-size:12px}
 .pill.on{background:var(--gold);color:#1b1608}
+.paper{background:#f3ecdc;color:#1b1a17;border-radius:6px;padding:16px 16px 18px;margin:12px 0;text-shadow:none;box-shadow:0 10px 30px rgba(0,0,0,.45);
+  background-image:radial-gradient(rgba(0,0,0,.035) 1px,transparent 1px);background-size:4px 4px;transform:rotate(-.4deg)}
+.paper .mast{font-family:'UnifrakturMaguntia',serif;font-size:34px;text-align:center;line-height:1}
+.paper .dateline{display:flex;justify-content:space-between;font:700 10px/1.2 Inter,sans-serif;letter-spacing:1px;text-transform:uppercase;border-top:2px solid #1b1a17;border-bottom:1px solid #1b1a17;padding:4px 0;margin:6px 0 10px}
+.paper .kick{display:inline-block;background:#c8102e;color:#fff;font:800 11px Inter,sans-serif;letter-spacing:1.5px;padding:3px 7px;text-transform:uppercase}
+.paper .hl{font-family:Anton,Impact,sans-serif;font-size:44px;line-height:.98;text-transform:uppercase;margin:8px 0 6px;letter-spacing:.3px}
+.paper .sub{color:#1b1a17;font:700 15px/1.3 Merriweather,Georgia,serif;margin-bottom:10px;border-bottom:1px solid #b9ad94;padding-bottom:10px}
+.paper p{font:14px/1.55 Merriweather,Georgia,serif;margin:0 0 9px}
+.paper p:first-of-type::first-letter{font-family:Anton,Impact,sans-serif;float:left;font-size:44px;line-height:.9;padding:4px 6px 0 0}
+.paper .by{font:italic 12px Merriweather,Georgia,serif;color:#5a5446;margin-bottom:8px}
+.paper .box{border:2px solid #1b1a17;padding:8px 10px;margin-top:10px;font:13px/1.45 Merriweather,Georgia,serif}
+.paper .box b{font-family:Inter,sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase}
+.paper .q{font-style:italic}
 /* nav */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(11,26,19,.96);backdrop-filter:blur(8px);border-top:1px solid var(--line);
   display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom);z-index:20}
@@ -955,6 +968,131 @@ function snkCard(sn,title){
 }
 function getNight(id){ return id==='cur' ? S.cur : S.nights.find(x=>x.id===id); }
 
+/* ---------------- back-page report ---------------- */
+function rng(seed){ let h=2166136261; for(const ch of String(seed)) h=Math.imul(h^ch.charCodeAt(0),16777619); return ()=>{ h^=h<<13; h^=h>>>17; h^=h<<5; return ((h>>>0)%10000)/10000; }; }
+function report(n){
+  const R=rng(n.id), pick=a=>a[Math.floor(R()*a.length)];
+  const c=calc(n), w=nightWinner(c), idx=S.nights.indexOf(n);
+  const nm=i=>S.names[i], NM=i=>S.names[i].toUpperCase();
+  const hi=Math.max(...c.tot), lo=Math.min(...c.tot), margin=hi-lo;
+  const venue=n.venue||'the club', VEN=(n.venue||'the club').toUpperCase();
+  const day=new Date(n.date).toLocaleDateString('en-GB',{weekday:'long'});
+  const gl=gamesOf(n).filter(g=>c.won[g][0]+c.won[g][1]>0);
+  const onlySnk = gl.length===1 && gl[0]==='s';
+  const sport = onlySnk ? 'snooker' : gl.every(g=>g!=='s') ? 'pool' : 'pool and snooker';
+  const L = w>=0 ? 1-w : -1;
+  // facts
+  const first=n.frames[0];
+  const worst=[0,1].map(p=>Math.min(0,...c.lead.map(v=>p===0?v:-v)));   // biggest deficit each player faced
+  const comeback = w>=0 && worst[w]<=-2 ? -worst[w] : 0;
+  const glory=[]; n.frames.forEach((f,i)=>(f.gl||[]).forEach(k=>glory.push({k,p:f.w,i:i+1,g:f.g})));
+  const shame=[]; n.frames.forEach((f,i)=>(f.sh||[]).forEach(k=>shame.push({k,p:1-f.w,i:i+1,g:f.g})));
+  const has=(k,p)=>glory.filter(x=>x.k===k&&(p==null||x.p===p));
+  const decider = n.frames.some(f=>(f.ev||[]).includes('hill'));
+  const prior=S.nights.slice(0,Math.max(0,idx)), oddsP = prior.length? oddsFrom(prior).p : 0.5;
+  const pW = w===0?oddsP:1-oddsP;
+  let streak=0; if(w>=0) for(let i=idx;i>=0;i--){ if(S.nights[i].result&&S.nights[i].result.win===w) streak++; else break; }
+  const upto=S.nights.slice(0,idx+1), tally=[0,0]; upto.forEach(x=>{ if(x.result&&x.result.win>=0) tally[x.result.win]++; });
+  const dur=gamesOf(n).reduce((a,g)=>a+((n.games[g].t1&&n.games[g].t0)?n.games[g].t1-n.games[g].t0:0),0);
+  const r=n.rate||[0,0];
+  const run=c.best[0]>=c.best[1]?0:1;
+
+  // headline: biggest story wins
+  let kick=sport.toUpperCase(), hl, sub;
+  if(w<0){ hl=pick([`HONOURS EVEN AT ${VEN}`,'STALEMATE!','NOTHING TO SPLIT THEM']); sub=`${nm(0)} and ${nm(1)} share the spoils ${c.tot[0]}–${c.tot[1]} and nobody buys the round`; }
+  else {
+    const W=NM(w), Lx=NM(L);
+    if(has('c100',w).length){ hl=pick([`${W} TONS UP`,`CENTURY MAN ${W}`]); kick='CENTURY'; }
+    else if(has('gb',w).length){ hl=pick([`GOLDEN ${W}`,`${W} STRIKES GOLD`,`${W}'S GOLDEN TOUCH`]); kick='GOLDEN BREAK'; }
+    else if(comeback>=3){ hl=pick([`THE GREAT ESCAPE`,`${W} RISES FROM THE DEAD`,`LAZARUS ${W}`]); kick='COMEBACK'; }
+    else if(lo===0 && hi>=3){ hl=pick([`${Lx} WHITEWASHED`,`NIL BY MOUTH FOR ${Lx}`,`${W} SHUTS OUT ${Lx}`]); kick='WHITEWASH'; }
+    else if(prior.length>=2 && pW<0.42){ hl=pick([`SHOCK! ${W} STUNS ${Lx}`,`BOOKIES BURNED AS ${W} WINS`,`UNDERDOG ${W} BITES BACK`]); kick='SHOCK'; }
+    else if(decider){ hl=pick([`${W} HOLDS NERVE IN DECIDER`,`HILL-HILL HEARTBREAK FOR ${Lx}`]); kick='DECIDER'; }
+    else if(has('snk',w).length){ hl=pick([`SNOOKERED? NOT ${W}`,`${W} DIGS DEEP`]); kick='DRAMA'; }
+    else if(comeback>=2){ hl=pick([`${W} FIGHTS BACK`,`COMEBACK KID ${W}`]); kick='COMEBACK'; }
+    else if(margin>=5){ hl=pick([`${W} RUNS RIOT`,`${Lx} LEFT IN TATTERS`,`MASSACRE AT ${VEN}`]); kick='ROUT'; }
+    else if(margin===1){ hl=pick([`${W} BY A WHISKER`,`PHOTO FINISH!`,`${W} EDGES IT`]); }
+    else if(streak>=3){ hl=pick([`${W} MAKES IT ${streak} IN A ROW`,`UNSTOPPABLE ${W}`]); kick='WIN STREAK'; }
+    else hl=pick([`${W} DOES THE BUSINESS`,`${W} RACKS UP ANOTHER`,`${W} CUES UP A WIN`,`${W} POTS THE SPOILS`]);
+    sub=pick([`${nm(L)} left counting the cost after ${hi}–${lo} defeat at ${venue}, and he's buying the drinks`,
+              `${nm(w)} takes the bragging rights ${hi}–${lo} as ${nm(L)} heads to the bar`,
+              `${hi}–${lo} at ${venue}: ${nm(L)} has some serious explaining to do`]);
+  }
+
+  // paragraph 1: result
+  const verb = w<0?'drew with' : margin>=5?pick(['thrashed','demolished','hammered']) : margin>=3?pick(['saw off','comfortably beat','got the better of']) : pick(['edged','pipped','narrowly beat']);
+  const gamesTxt = gl.length>1 ? ` across ${gl.map(g=>GL(g).toLowerCase()).join(' and ')} (${gl.map(g=>`${c.sc[g][0]}–${c.sc[g][1]} in the ${GL(g).toLowerCase()}`).join(', ')})` : gl.length?` at ${GL(gl[0]).toLowerCase()}`:'';
+  const P=[];
+  P.push(w<0 ? `${nm(0)} and ${nm(1)} could not be separated at ${venue} on ${day} night, finishing all square at ${c.tot[0]}–${c.tot[1]}${gamesTxt}.`
+             : `${nm(w)} ${verb} ${nm(L)} ${hi}–${lo} at ${venue} on ${day} night${gamesTxt}.${dur>30*60000?` The action ran to ${fmtDur(dur)} at the table.`:''}`);
+
+  // paragraph 2: how it unfolded
+  let p2='';
+  if(first){
+    if(n.lag!=null) p2 += first.w===n.lag ? `${nm(n.lag)} won the lag and drew first blood in frame one. ` : `${nm(n.lag)} won the lag, but it was ${nm(first.w)} who drew first blood. `;
+    else p2 += `${nm(first.w)} drew first blood in frame one. `;
+  }
+  if(comeback) p2+=`But this was a night for the brave: ${nm(w)} found himself ${comeback} frame${comeback>1?'s':''} adrift before ${pick(['roaring back','clawing his way back','turning the whole thing on its head'])}. `;
+  else if(w>=0 && first && first.w===L) p2+=`${nm(L)}'s early lead proved a false dawn. `;
+  else if(w>=0 && first && first.w===w) p2+=`${nm(w)} never really looked back. `;
+  if(c.best[run]>=3) p2+=`The key spell was a ${c.best[run]}-frame run from ${nm(run)}${c.best[run]>=5?', and the table looked like it belonged to him':''}. `;
+  if(decider) p2+=`It came down to a hill-hill decider, with nerves jangling on both sides. `;
+  if(p2) P.push(p2.trim());
+
+  // paragraph 3: moments of magic
+  const m=[];
+  has('gb').forEach(x=>m.push(`${nm(x.p)}'s golden break in frame ${x.i} had the whole club talking`));
+  has('br').forEach(x=>m.push(`${nm(x.p)} broke and ran out frame ${x.i}`));
+  has('cb').forEach(x=>m.push(`${nm(x.p)} cleared up from the break in frame ${x.i}`));
+  has('dish').forEach(x=>m.push(`${nm(x.p)} dished frame ${x.i} without ${nm(1-x.p)} potting a ball`));
+  has('ww').forEach(x=>m.push(`${nm(1-x.p)} was left with all seven on the table in frame ${x.i}`));
+  has('c100').forEach(x=>m.push(`${nm(x.p)} made a century, no less`));
+  if(!has('c100').length && (c.hb[0]>=20||c.hb[1]>=20)){ const p=c.hb[0]>=c.hb[1]?0:1; m.push(`${nm(p)} knocked in a ${c.hb[p]} break`); }
+  has('otb').forEach(x=>m.push(`frame ${x.i} went right down to the final black`));
+  has('snk').forEach(x=>m.push(`${nm(x.p)} needed snookers in frame ${x.i} and still won it`));
+  if(m.length) P.push(`${pick(['Moment of the night?','Highlights?','The magic?'])} ${m.slice(0,4).map((t,i)=>i?t:t[0].toUpperCase()+t.slice(1)).join('; ')}.`);
+
+  // paragraph 4: hall of shame
+  const shameTxt={s9:'scratched on the 9',hang:pick(['missed a sitter his nan would have potted','missed a hanger','fluffed a hanger over the pocket']),'3f':'lost a frame on three fouls',fb:'fouled the black',e8:'potted the black early',inoff:'went in-off',miss:'missed a sitter',foulb:'fouled on the black'};
+  if(shame.length){
+    const byP=[0,1].map(p=>shame.filter(x=>x.p===p));
+    const worstP=byP[0].length>=byP[1].length?0:1;
+    P.push(`It wasn't all pretty. ${nm(worstP)} ${byP[worstP].slice(0,2).map(x=>shameTxt[x.k]).join(' and ')}${byP[worstP].length>2?`, among other crimes`:''}${byP[1-worstP].length?`, while ${nm(1-worstP)} ${shameTxt[byP[1-worstP][0].k]}`:''}. ${pick(['The hall of shame has been updated.','Neither will want to see the replays.','The less said, the better.'])}`);
+  }
+
+  // paragraph 5: ratings + verdict
+  let p5='';
+  if(r[0]||r[1]){
+    const say=(p)=>{ const v=r[p]; if(!v) return ''; return v>=8?`${nm(p)} gave himself a confident ${v}/10`: v>=6?`${nm(p)} marked himself a solid ${v}/10`: v>=4?`${nm(p)} could only manage a ${v}/10 on his own scorecard`:`${nm(p)} admitted it was a dismal night, rating himself just ${v}/10`; };
+    p5+=[say(0),say(1)].filter(Boolean).join(', while ')+'. ';
+  }
+  if(w>=0){
+    if(prior.length>=2) p5+= pW<0.42?`The bookies had ${nm(w)} as the outsider, so this one will sting for ${nm(L)}. ` : pW>0.6?`It went the way the odds said it would. `:'';
+    if(streak>=2) p5+=`That's ${streak} nights on the bounce for ${nm(w)}. `;
+    p5+=`The rivalry now stands at ${tally[w]}–${tally[L]} to ${tally[w]>=tally[L]?nm(w):nm(L)}${tally[w]===tally[L]?' (all square)':''}. ${nm(L)} is on the drinks.`;
+  }
+  if(p5) P.push(p5.trim());
+
+  // boxes
+  const star = w>=0 ? w : (c.pts[0]>=c.pts[1]?0:1);
+  const moment = has('gb')[0]?`Golden break, ${nm(has('gb')[0].p)}` : has('c100')[0]?`Century, ${nm(has('c100')[0].p)}` : has('br')[0]||has('cb')[0]?`Break & run, ${nm((has('br')[0]||has('cb')[0]).p)}` : comeback?`${nm(w)}'s comeback` : c.best[run]>=3?`${nm(run)}'s ${c.best[run]}-frame run`:'';
+  return {kick, hl, sub, P, star, moment, venue, date:n.date};
+}
+function backPage(n){
+  if(!n.frames.length) return '';
+  const r=report(n);
+  return `<div class="paper">
+    <div class="mast">The Rack-Up Times</div>
+    <div class="dateline"><span>${new Date(r.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span><span>Back page</span><span>${esc(r.venue)}</span></div>
+    <span class="kick">${esc(r.kick)}</span>
+    <div class="hl">${esc(r.hl)}</div>
+    <div class="sub">${esc(r.sub)}</div>
+    <div class="by">By our man at the table</div>
+    ${r.P.map(t=>`<p>${esc(t)}</p>`).join('')}
+    <div class="box"><b>⭐ Star man</b><br>${esc(S.names[r.star])}${r.moment?`<br><b>🎱 Moment of the night</b><br>${esc(r.moment)}`:''}</div>
+  </div>
+  <button class="btn block" data-act="copyreport" data-id="${n.id}" style="margin-bottom:12px">📋 Copy report for WhatsApp</button>`;
+}
 function viewNight(id){
   const n=getNight(id); if(!n){ UI.view=null; return viewRival(); }
   const c=calc(n), w=nightWinner(c);
@@ -988,6 +1126,7 @@ function viewNight(id){
     <button class="pill mt" data-act="rateedit" data-id="${n.id}" style="margin-top:8px;font-size:12px">⭐ ${n.rate?`Rated ${N(0)} ${n.rate[0]||'–'}/10 · ${N(1)} ${n.rate[1]||'–'}/10 ✎`:'Add how you played (out of 10)'}</button>
     <button class="btn primary mt" data-act="share" data-id="${n.id}">📸 Make share card</button>
   </div>
+  ${backPage(n)}
   <div class="card">
     <h3>Frame by frame</h3>
     ${stripHTML(n.frames)}
@@ -1370,6 +1509,8 @@ document.addEventListener('click',e=>{
     case 'open': UI.view=d.id; UI.cmp=null; render(); window.scrollTo(0,0); break;
     case 'back': UI.view=null; UI.cmp=null; render(); break;
     case 'share': shareCard(d.id); break;
+    case 'copyreport': { const r=report(getNight(d.id)); const txt=`📰 *${r.hl}*\n_${r.sub}_\n\n${r.P.join('\n\n')}\n\n⭐ Star man: ${S.names[r.star]}${r.moment?`\n🎱 Moment of the night: ${r.moment}`:''}`;
+      (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>snack('📋 Report copied. Paste it into WhatsApp')).catch(()=>snack('Couldn\'t copy on this phone')); break; }
     case 'tbl': UI.table=!UI.table; render(); break;
     case 'paid': if(S.owed[+d.p]>0){S.owed[+d.p]--; save(); render();} break;
     case 'opt': S.set[d.k]=!S.set[d.k]; save(); render(); break;
