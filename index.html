@@ -554,7 +554,9 @@ function endNight(){
   n.ended=true; n.result={tot:c.tot, pts:c.pts, win:w};
   UI.what=`ended the night (${c.tot[0]}–${c.tot[1]})`;
   if(w>=0) S.owed[1-w]++;
-  S.nights.push(n); S.cur=null; save();
+  S.nights.push(n); S.cur=null;
+  try{ n.paper=report(n); }catch(e){}
+  save();
   UI.tab='rival'; UI.view=n.id; UI.cmp=null; render();
   if(w>=0) toast(`${S.names[w].toUpperCase()} WINS THE NIGHT`, `${S.names[1-w]} owes a round 🍺`);
   else toast('ALL SQUARE', 'Nobody buys tonight');
@@ -1155,9 +1157,24 @@ function report(n){
   const moment = has('gb')[0]?`Golden break, ${nm(has('gb')[0].p)}` : has('c100')[0]?`Century, ${nm(has('c100')[0].p)}` : has('br')[0]||has('cb')[0]?`Break & run, ${nm((has('br')[0]||has('cb')[0]).p)}` : comeback?`${nm(w)}'s comeback` : c.best[run]>=3?`${nm(run)}'s ${c.best[run]}-frame run`:'';
   return {kick, hl, sub, P, star, moment, venue, date:n.date};
 }
+function paperOf(n){ if(n.paper) return n.paper; const r=report(n); if(n.ended && S.nights.includes(n)){ n.paper=r; clearTimeout(UI.paperSave); UI.paperSave=setTimeout(save,500); } return r; }
+function archiveCard(){
+  const list=NF().filter(n=>n.frames.length).slice().reverse();
+  if(!list.length) return '';
+  const show=UI.archAll?list:list.slice(0,5);
+  return `<div class="card">
+    <div class="row between"><h3 style="margin:0">📰 The Rack-Up Times archive</h3><span class="muted" style="font-size:11px">${list.length} back page${list.length>1?'s':''}</span></div>
+    <div class="list" style="margin-top:6px">${show.map(n=>{ const r=paperOf(n); return `<button class="li night" data-act="open" data-id="${n.id}" style="align-items:flex-start">
+      <div style="min-width:0"><span class="pill" style="background:#c8102e;color:#fff;font-size:10px">${esc(r.kick)}</span>
+        <div style="font-family:Anton,'Bebas Neue',Impact,sans-serif;font-size:22px;line-height:1.05;margin-top:5px;text-transform:uppercase">${esc(r.hl)}</div>
+        <div class="muted" style="font-size:12px;margin-top:3px">${fmtDate(n.date)}${n.venue?` · ${esc(n.venue)}`:''} · ${n.result.tot[0]}–${n.result.tot[1]}</div></div>
+      <div class="r muted">›</div></button>`; }).join('')}</div>
+    ${list.length>5?`<button class="btn block mt" data-act="archall" style="margin-top:8px">${UI.archAll?'Show fewer':`Show all ${list.length}`}</button>`:''}
+  </div>`;
+}
 function backPage(n){
   if(!n.frames.length) return '';
-  const r=report(n);
+  const r=paperOf(n);
   return `<div class="paper">
     <div class="mast">The Rack-Up Times</div>
     <div class="dateline"><span>${new Date(r.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span><span>Back page</span><span>${esc(r.venue)}</span></div>
@@ -1276,6 +1293,7 @@ function viewRival(){
   ${vbar}
   ${oddsCard(false, NF())}
   ${formCard()}
+  ${archiveCard()}
   <div class="card">
     <h3>All-time head to head</h3>
     <div class="row between" style="margin-bottom:8px"><b><span class="dot d0"></span>${N(0)}</b><b>${N(1)}<span class="dot d1" style="margin:0 0 0 6px"></span></b></div>
@@ -1586,7 +1604,8 @@ document.addEventListener('click',e=>{
     case 'open': UI.view=d.id; UI.cmp=null; render(); window.scrollTo(0,0); break;
     case 'back': UI.view=null; UI.cmp=null; render(); break;
     case 'share': shareCard(d.id); break;
-    case 'copyreport': { const r=report(getNight(d.id)); const txt=`📰 *${r.hl}*\n_${r.sub}_\n\n${r.P.join('\n\n')}\n\n⭐ Star man: ${S.names[r.star]}${r.moment?`\n🎱 Moment of the night: ${r.moment}`:''}`;
+    case 'archall': UI.archAll=!UI.archAll; render(); break;
+    case 'copyreport': { const r=paperOf(getNight(d.id)); const txt=`📰 *${r.hl}*\n_${r.sub}_\n\n${r.P.join('\n\n')}\n\n⭐ Star man: ${S.names[r.star]}${r.moment?`\n🎱 Moment of the night: ${r.moment}`:''}`;
       (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>snack('📋 Report copied. Paste it into WhatsApp')).catch(()=>snack('Couldn\'t copy on this phone')); break; }
     case 'tbl': UI.table=!UI.table; render(); break;
     case 'paid': if(S.owed[+d.p]>0){S.owed[+d.p]--; save(); render();} break;

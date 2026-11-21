@@ -1,5 +1,5 @@
 // RackUp offline cache. Bump the version when you upload a new index.html if it seems stuck.
-const C = 'rackup-v8';
+const C = 'rackup-v9';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 const timeout = (p, ms) => Promise.race([p, new Promise((_, r) => setTimeout(() => r('timeout'), ms))]);
 
