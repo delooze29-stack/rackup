@@ -274,7 +274,9 @@ function onRemote(snap){
   const js=snap.data().data;
   if(!js || pend || js===CLOUD.lastJSON) return;
   try{
+    const prevAt=S.last&&S.last.at;
     CLOUD.lastJSON=js; S=JSON.parse(js); migrate();
+    const l=S.last; if(l && l.at!==prevAt && CLOUD.user && (l.email||'')!==(CLOUD.user.email||'') && Date.now()-l.at<120000) snack(`🔄 <b>${esc(whoName(l))}</b> ${esc(l.what)} · ${clock(l.at)}`);
     try{ localStorage.setItem(KEY, js); }catch(e){}
     if(!document.getElementById('ov').classList.contains('show')){ UI.setup=null; render(); }
   }catch(e){ console.warn(e); }
@@ -366,7 +368,22 @@ function migrate(){
   if(!S.nights) S.nights=[];
 }
 migrate();
-const save = ()=>DB.save(S);
+function save(){
+  if(CLOUD.user && UI.what){ S.last={by:meIdx(), email:CLOUD.user.email||'', at:Date.now(), what:UI.what}; }
+  UI.what=null; DB.save(S);
+}
+const whoName=l=> l.by>=0 ? S.names[l.by] : (l.email||'Someone').split('@')[0];
+function clock(ts){ const d=new Date(ts), t=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); return d.toDateString()===new Date().toDateString()?t:`${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${t}`; }
+function lastLine(){
+  const l=S.last; if(!l || !CLOUD.user) return '';
+  const mine=(l.email||'')===(CLOUD.user.email||'');
+  return `<div class="center" style="font-size:12px;color:var(--ink2);margin:8px 0 2px">✏️ Last update: <b style="color:var(--ink)">${esc(mine?'You':whoName(l))}</b> · ${clock(l.at)} · ${esc(l.what)}</div>`;
+}
+function snack(msg){
+  let el=document.getElementById('snack');
+  if(!el){ el=document.createElement('div'); el.id='snack'; el.style.cssText='position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#0a140f;border:1px solid var(--gold);color:var(--ink);padding:10px 14px;border-radius:14px;font-size:13px;z-index:70;max-width:92%;box-shadow:0 8px 24px rgba(0,0,0,.5);transition:opacity .3s;opacity:0'; document.body.appendChild(el); }
+  el.innerHTML=msg; el.style.opacity=1; clearTimeout(el._t); el._t=setTimeout(()=>el.style.opacity=0,4500);
+}
 const gamesOf = n=> n.order ? n.order.filter(g=>n.games[g]) : GAMES.filter(g=>n.games[g]);
 const N = i=>esc(S.names[i]);
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -455,6 +472,7 @@ function confetti(){
 /* ---------------- actions ---------------- */
 function startNight(){
   const u=UI.setup; if(!u.games.length) return;
+  UI.what=`started a night at ${u.venue||'the club'}`;
   S.set.venue=u.venue;
   S.cur={id:'n'+Date.now(), date:new Date().toISOString(),
     games:{}, order:[...u.games], frames:[], g:u.games[0], ended:false, venue:u.venue||'', first:u.first, lag:u.lag, rule:{...u.rule}, bov:{}};
@@ -470,6 +488,8 @@ function logFrame(){
   if(n.bov) delete n.bov[g];
   const before=calc(n);
   const f={g, w, gl:[...sel.gl], sh:[...sel.sh], t:Date.now(), ev:[], bo};
+  if(CLOUD.user) f.by=meIdx();
+  UI.what=`logged frame ${n.frames.length+1}: ${S.names[w]} won the ${GL(g).toLowerCase()}`;
   if(sel.snk){ f.pts=sel.snk.pts; f.brk=sel.snk.brk; f.first=sel.snk.first; f.fouls=sel.snk.fouls; if(sel.snk.hb[0]||sel.snk.hb[1]) f.hb=sel.snk.hb; }
   else if(g==='s'){ if(n.snk) f.first=n.snk.first; const a=+(document.getElementById('hb0')||{}).value||0, b=+(document.getElementById('hb1')||{}).value||0; if(a||b) f.hb=[Math.min(147,a),Math.min(147,b)]; }
   n.frames.push(f);
@@ -497,6 +517,7 @@ function logFrame(){
 }
 function undo(){
   const n=S.cur; const f=n.frames.pop(); if(!f) return;
+  UI.what=`undid frame ${n.frames.length+1} (${S.names[f.w]}'s ${GL(f.g).toLowerCase()} frame)`;
   save(); render();
 }
 function openRate(id, ending){
@@ -518,6 +539,7 @@ function endNight(){
   if(!n.frames.length){ S.cur=null; save(); render(); return; }
   const c=calc(n), w=nightWinner(c);
   n.ended=true; n.result={tot:c.tot, pts:c.pts, win:w};
+  UI.what=`ended the night (${c.tot[0]}–${c.tot[1]})`;
   if(w>=0) S.owed[1-w]++;
   S.nights.push(n); S.cur=null; save();
   UI.tab='rival'; UI.view=n.id; UI.cmp=null; render();
@@ -620,7 +642,9 @@ function snkState(sn){
 }
 function snkShot(shot){
   const n=S.cur, sn=snkInit(n);
-  sn.shots.push(shot); UI.foul=false; save();
+  sn.shots.push(shot); UI.foul=false;
+  { const st0=snkState(sn); UI.what = shot.t==='pot'?`potted the ${BALLS[shot.b].n.toLowerCase()} (${st0.sc[0]}–${st0.sc[1]})` : shot.t==='foul'?`marked a foul (${shot.v} away)` : `updated the snooker score (${st0.sc[0]}–${st0.sc[1]})`; }
+  save();
   const st=snkState(sn);
   if(shot.t==='pot'){ beep('tick');
     if(st.brk>=100 && st.brk-shot.b<100) toast('CENTURY!', `${S.names[st.turn]} · ${st.brk} and counting`);
@@ -862,7 +886,7 @@ function viewLive(){
       <div class="tapme">tap to give frame</div></button>`;
   };
   const gl=gamesOf(n), nextG=gl[gl.indexOf(g)+1];
-  return `
+  return `${lastLine()}
   ${gl.length>1?`<div class="gsw">${gl.map(x=>`<button class="${g===x&&!n.allDone?'on':''}" data-act="game" data-g="${x}">${n.games[x].done?'✓ ':''}${GL(x).toUpperCase()}<small>${c.sc[x][0]} – ${c.sc[x][1]}${n.games[x].race?` · race ${n.games[x].race}`:''}</small></button>`).join('')}</div>`
    :`<div class="center"><span class="pill" style="font-size:13px">${GL(g).toUpperCase()} NIGHT</span></div>`}
   ${n.allDone ? doneCard(n) : !n.games[g].t0 ? readyCard(n,g,c) : `${n.games[g].done?`<div class="wonbar" style="margin-top:12px"><span>✓ ${GL(g)} finished · ${fmtDur((n.games[g].t1||Date.now())-n.games[g].t0)}</span><button class="pill" data-act="reopen">Reopen</button></div>`:''}
@@ -1194,7 +1218,8 @@ function drawWorm(el){
       const bits=[...(f.gl||[]).map(k=>gdef(f.g,k).ic+' '+gdef(f.g,k).l), ...(f.sh||[]).map(k=>sdef(f.g,k).ic+' '+sdef(f.g,k).l)];
       if(f.ch) bits.unshift('⚡ Challenge frame');
       if(bits.length) h+=`<span class="muted">${bits.join(' · ')}</span><br>`;
-      h+=`Lead: <b style="display:inline">${esc(ld(lead[i]))}</b>`; }
+      h+=`Lead: <b style="display:inline">${esc(ld(lead[i]))}</b>`;
+      if(f.by!=null && f.by>=0) h+=`<br><span class="muted">Logged by ${esc(S.names[f.by])} · ${clock(f.t)}</span>`; }
     if(cf) h+=`<br><span class="muted">${shortDate(cn.date)}: ${esc(ld(cl[i]))}</span>`;
     tip.innerHTML=h; tip.style.opacity=1;
     const tx=(X(i)/W)*r.width; const tw=tip.offsetWidth;
@@ -1315,14 +1340,14 @@ document.addEventListener('click',e=>{
     case 'sback': snkShot({t:'back'}); break;
     case 'sfree': snkShot({t:'free'}); break;
     case 'sredoff': snkShot({t:'redoff'}); break;
-    case 'sundo': { const sn=snkInit(S.cur); sn.shots.pop(); UI.foul=false; save(); render(); break; }
+    case 'sundo': { const sn=snkInit(S.cur); sn.shots.pop(); UI.foul=false; UI.what='undid a snooker shot'; save(); render(); break; }
     case 'sreds': { const sn=snkInit(S.cur); sn.reds=+d.r; S.set.reds=+d.r; save(); render(); break; }
     case 'sover': snkOver(); break;
     case 'pickg': { const u=UI.setup; u.games = u.games.includes(d.g) ? u.games.filter(x=>x!==d.g) : [...u.games, d.g]; render(); break; }
     case 'game': S.cur.g=d.g; S.cur.allDone=false; save(); render(); break;
     case 'moveup': { const u=UI.setup, i=u.games.indexOf(d.g); if(i>0){ [u.games[i-1],u.games[i]]=[u.games[i],u.games[i-1]]; } render(); break; }
-    case 'startgame': { const G=S.cur.games[S.cur.g]; G.t0=Date.now(); G.done=false; save(); render(); toast(`${GL(S.cur.g).toUpperCase()} · GAME ON`, G.mins?`${minsLbl(G.mins)} on the clock`:'No time limit','tick'); break; }
-    case 'finishgame': { const n=S.cur, g=n.g, G=n.games[g], c=calc(n); G.done=true; G.t1=Date.now();
+    case 'startgame': { const G=S.cur.games[S.cur.g]; G.t0=Date.now(); G.done=false; UI.what=`started the ${GL(S.cur.g).toLowerCase()}`; save(); render(); toast(`${GL(S.cur.g).toUpperCase()} · GAME ON`, G.mins?`${minsLbl(G.mins)} on the clock`:'No time limit','tick'); break; }
+    case 'finishgame': { const n=S.cur, g=n.g, G=n.games[g], c=calc(n); G.done=true; G.t1=Date.now(); UI.what=`finished the ${GL(g).toLowerCase()} (${c.sc[g][0]}–${c.sc[g][1]})`;
       const gl=gamesOf(n), nx=gl.slice(gl.indexOf(g)+1).find(x=>!n.games[x].done);
       if(nx) n.g=nx; else n.allDone=true;
       save(); render(); window.scrollTo(0,0);
